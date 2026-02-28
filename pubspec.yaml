@@ -1,0 +1,77 @@
+name: pubmed_mobile
+description: "A mobile PubMed literature search client."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+
+  # Network
+  dio: ^5.9.1
+
+  # Data Model
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # Local Storage
+  drift: ^2.28.2
+  sqlite3_flutter_libs: '>=0.5.0 <0.6.0'
+  shared_preferences: ^2.5.4
+
+  # WebView
+  flutter_inappwebview: ^6.1.5
+
+  # Router
+  go_router: ^17.1.0
+
+  # UI
+  shimmer: ^3.0.0
+  flutter_svg: ^2.1.0
+
+  # Utils
+  xml: ^6.6.1
+  url_launcher: ^6.3.2
+  share_plus: ^12.0.1
+  path_provider: ^2.1.5
+  intl: ^0.20.2
+  connectivity_plus: ^7.0.0
+  flutter_native_splash: ^2.4.7
+  dynamic_color: ^1.8.1
+  path: ^1.9.1
+  sqlite3: ^2.9.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  build_runner: ^2.5.4
+  freezed: ^2.5.8
+  json_serializable: ^6.9.5
+  drift_dev: ^2.28.0
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/fonts/
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
