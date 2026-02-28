@@ -2,7 +2,7 @@
 
 基于 Flutter 的 PubMed 文献检索 Android 生态客户端。支持关键词搜索、文献详情、PMC 开放获取全文阅读、收藏管理，以及离线缓存与多语言互译机制。
 
-> **本项目代码完全由 Claude Opus 4.6 (Anthropic) 生成。**
+> **本项目代码完全由 Claude Opus 4.6、Gemini 3.1 Pro 以及 GPT-5.3-Codex 生成，除了此 Readme 外无分毫人工手搓痕迹，毕竟我完全不会啊。**
 
 > [!CAUTION]
 > **Disclaimer & Copyright / 免责与版权声明**
