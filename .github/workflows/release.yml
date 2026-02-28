@@ -1,0 +1,52 @@
+name: Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on tags matching v*, e.g., v1.0.0, v0.1.1
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Code Generation (Freezed / Drift)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build APK
+        # 专为现代手机系统生成单体极简纯净安装包（仅包含 arm64-v8a 指令集，排除冗余架构体系）
+        run: flutter build apk --release --target-platform=android-arm64
+
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/PubMedMobile-${{ github.ref_name }}-arm64.apk
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/PubMedMobile-${{ github.ref_name }}-arm64.apk
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
