@@ -23,8 +23,8 @@
 
 - [截图](#截图)
 - [技术栈](#技术栈)
-- [环境要求](#环境要求)
-- [快速开始](#快速开始)
+- [如何获取与编译代码](#如何获取与编译代码)
+- [维护与升级指南](#维护与升级指南)
 - [应用命名与版本号说明](#应用命名与版本号说明)
 - [项目结构](#项目结构)
 - [架构设计](#架构设计)
@@ -41,10 +41,15 @@
 
 主要页面与核心能力预览（示例数据，界面可能随版本迭代微调）。
 
-|  |  |  |
+| 搜索页 | 文献详情页 | PMC 阅读页 |
 |---|---|---|
-| <img src="screenshot/1.png" width="240" alt="搜索" /><br/>搜索：关键词检索与入口 | <img src="screenshot/3.png" width="240" alt="文献详情" /><br/>详情：元信息/分区/收藏/分享 | <img src="screenshot/5.png" width="240" alt="PMC 阅读" /><br/>阅读：PMC 全文 WebView + 工具按钮 |
-| <img src="screenshot/2.png" width="240" alt="设置" /><br/>设置：API Key、主题、语言等 | <img src="screenshot/4.png" width="240" alt="一键翻译" /><br/>翻译：原文/译文一键切换（带缓存） | <img src="screenshot/6.png" width="240" alt="目录" /><br/>目录：TOC 抽屉与章节跳转 |
+| 关键词检索入口与历史搜索 | 元信息/分区/收藏/分享一体化展示 | WebView 全文阅读、目录与快捷滚动 |
+| <img src="screenshot/1.png" width="240" alt="搜索" /> | <img src="screenshot/3.png" width="240" alt="文献详情" /> | <img src="screenshot/5.png" width="240" alt="PMC 阅读" /> |
+
+| 设置页 | 翻译视图 | TOC 目录抽屉 |
+|---|---|---|
+| API Key、主题、语言、缓存管理 | 标题/摘要中英切换（带缓存） | 一键跳转到章节，提升长文阅读效率 |
+| <img src="screenshot/2.png" width="240" alt="设置" /> | <img src="screenshot/4.png" width="240" alt="一键翻译" /> | <img src="screenshot/6.png" width="240" alt="目录" /> |
 
 ## 技术栈
 
@@ -107,7 +112,38 @@ dart run build_runner build --delete-conflicting-outputs
 flutter run
 ```
 
-### 4. 发布与获取编译产物
+### 4. 首次拿到仓库建议按这个顺序操作（新手友好）
+
+如果你不熟悉 Android/Flutter，可以直接按下面流程走，一般不会踩坑：
+
+```bash
+# 1) 拉代码
+git clone https://github.com/aoaim/pubmed-mobile.git
+cd pubmed-mobile
+
+# 2) 检查环境是否就绪（看是否有红字）
+flutter doctor
+
+# 3) 拉依赖
+flutter pub get
+
+# 4) 生成代码（首次必跑）
+dart run build_runner build --delete-conflicting-outputs
+
+# 5) 连接模拟器/真机后运行
+flutter run
+```
+
+若遇到构建缓存异常（例如 depfile 报错），可以清理后重建：
+
+```bash
+flutter clean
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter run
+```
+
+### 5. 发布与获取编译产物
 
 当你对代码满意并且想要在物理手机上正式安装或分发应用时，需要构架 Release 版本：
 
@@ -129,6 +165,72 @@ flutter build apk --release --target-platform=android-arm64
 5. 将上一步产生在 `build/app/outputs/flutter-apk/app-release.apk` 的文件拖拽上传到界面底部的附件区域中，重命名为一个好记的名字，比如 `PubMedMobile-v1.0.1-arm64.apk`。
 6. 点击 **Publish release**，所有人即可公开下载。
 
+## 维护与升级指南
+
+这一节面向后续维护者（包括不了解 Android 细节的同学），聚焦“怎么安全迭代”。
+
+### 1) 日常维护最小流程
+
+```bash
+# 拉取最新代码
+git pull
+
+# 更新依赖并验证
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter analyze
+flutter test
+```
+
+建议每次改动后至少做两件事：
+- 跑 `flutter analyze`（快速发现静态问题）
+- 在模拟器上手测关键链路：搜索 -> 详情 -> PMC 阅读 -> 设置
+
+### 2) 修改数据库或 freezed 模型后的必做动作
+
+- 改了 `lib/core/database/app_database.dart` 的表结构：
+  1. 更新 `schemaVersion`
+  2. 在 `migration` 中补升级逻辑
+  3. 重新跑 `build_runner`
+- 改了 `@freezed` 数据类字段：必须重跑 `build_runner`
+
+命令：
+
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
+
+### 3) 升级版本号的建议规则
+
+- 补丁修复（仅修 bug）：`0.1.0 -> 0.1.1`
+- 小功能新增（兼容旧行为）：`0.1.x -> 0.2.0`
+- 大改或不兼容变更：`0.x -> 1.0.0`（或主版本 +1）
+
+当前项目 `pubspec.yaml` 采用：
+
+```yaml
+version: 0.1.0
+```
+
+> 说明：不写 `+buildNumber` 时，Android 侧通常按默认构建号处理。若你计划长期发布，建议恢复为 `x.y.z+N` 以便精确追踪安装包迭代。
+
+### 4) 发布前检查清单（建议照抄执行）
+
+```bash
+flutter clean
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter analyze
+flutter test
+flutter build apk --release --target-platform=android-arm64
+```
+
+并人工检查：
+- 应用名显示是否正确（`PubMed`）
+- 设置页版本文案是否与 `pubspec.yaml` 一致
+- PMC 全文缓存是否可写入、二次打开是否正常
+- README 是否同步更新了新增/变更功能
+
 ## 应用命名与版本号说明
 
 这一节专门解释「包名」「显示名」「版本号」三个常被混淆的概念，便于后续维护时不误改。
@@ -141,7 +243,7 @@ flutter build apk --release --target-platform=android-arm64
 name: pubmed_mobile
 description: "A mobile PubMed literature search client."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.0
 ```
 
 原因：
@@ -160,11 +262,11 @@ version: 0.1.0+1
 | Android 包名（applicationId） | `dev.aoaim.pubmed_mobile` | 安装包唯一标识（影响升级/签名/商店） | `android/app/build.gradle.kts` 的 `applicationId` |
 | Flutter 应用标题 | `PubMed Mobile` | 系统任务视图/语义标题等 | `lib/main.dart` 的 `MaterialApp.router(title: ...)` |
 
-### 3) `version: 0.1.0+1` 是否正确
+### 3) `version: 0.1.0` 是否正确
 
 语义上完全正确，且符合 Flutter 约定：
 - `0.1.0` = 用户可见版本号（Android 的 `versionName`）
-- `+1` = 内部构建号（Android 的 `versionCode`）
+- 当前未显式填写 `+buildNumber`，可按需要后续补充为 `0.1.0+N`
 
 当前 `android/app/build.gradle.kts` 使用 `flutter.versionName` 和 `flutter.versionCode`，所以这里会自动同步到 Android 构建。
 
