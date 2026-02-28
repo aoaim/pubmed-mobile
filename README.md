@@ -718,7 +718,7 @@ dart run build_runner build --delete-conflicting-outputs
 以下为后续迭代计划（持续更新）：
 
 - [x] PMC 阅读器适配夜间模式（深色背景、正文对比度与链接颜色优化）
-- [ ] 高级搜索语法 (Advanced Search Syntax)
+- [ ] 便捷生成高级搜索语法 (Advanced Search Syntax)
 - [ ] 更多功能计划中（搜索体验、阅读体验与数据能力持续增强）
 
 ---
