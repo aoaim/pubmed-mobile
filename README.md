@@ -33,6 +33,7 @@
 - [数据流](#数据流)
 - [NCBI API 集成](#ncbi-api-集成)
 - [代码生成](#代码生成)
+- [TODO / Roadmap](#todo--roadmap)
 - [常见问题](#常见问题)
 
 ---
@@ -705,6 +706,15 @@ NCBI 对 E-utilities 有严格的速率限制：
 ```bash
 dart run build_runner build --delete-conflicting-outputs
 ```
+
+---
+
+## TODO / Roadmap
+
+以下为后续迭代计划（持续更新）：
+
+- [ ] PMC 阅读器适配夜间模式（深色背景、正文对比度与链接颜色优化）
+- [ ] 更多功能计划中（搜索体验、阅读体验与数据能力持续增强）
 
 ---
 
