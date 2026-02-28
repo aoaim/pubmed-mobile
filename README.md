@@ -469,7 +469,7 @@ Dio 实例配置，包含 **三个拦截器**（按顺序执行）：
 ### `core/l10n/app_localizations.dart` — 国际化
 
 手写的本地化方案（不依赖 arb 文件/代码生成）：
-- 支持 `zh-CN`（简体中文）和 `en-US`（英文）
+- 支持 `zh-CN`（简体中文）和 `en-GB`（英文）
 - 约 80 条翻译字符串，覆盖所有 UI 文本
 - 通过 `locale.languageCode == 'zh'` 简单分支实现
 - 提供 `LocalizationsDelegate` 集成到 `MaterialApp`
@@ -737,9 +737,6 @@ dart run build_runner build --delete-conflicting-outputs
 
 ### Q: Debug APK 为什么 160+ MB
 **A**: Debug 包含 JIT 编译器和调试信息。Release 构建约 15-25 MB：`flutter build apk --release --split-per-abi`。
-
-### Q: PMC 全文第一次能打开，第二次打开白屏
-**A**: 先检查 `reader_screen.dart` 的 `shouldOverrideUrlLoading`。如果未放行 `about:`、`data:`、`file:`、`blob:`，缓存 HTML 会被拦截并白屏。当前代码已修复：本地 scheme 放行，网络层拦截外部域名，页面内链接点击由 JS 统一禁用。
 
 ---
 
