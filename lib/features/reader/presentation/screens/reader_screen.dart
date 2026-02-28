@@ -293,6 +293,70 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   })();
   """;
 
+  static const String _darkModeJs = r"""
+  (function() {
+    if (document.getElementById('pubmed-mobile-dark-mode')) return;
+    var style = document.createElement('style');
+    style.id = 'pubmed-mobile-dark-mode';
+    style.innerHTML = `
+      html, body {
+        background-color: #121212 !important;
+        color: #E0E0E0 !important;
+      }
+      * {
+        color: inherit !important;
+        background-color: transparent !important;
+        border-color: #333333 !important;
+      }
+      a, a:link, a:visited, a:hover, a:active {
+        color: #64B5F6 !important;
+        text-decoration: none !important;
+      }
+      .pmc-article-section, article, main, header, footer, section, div, p, span, h1, h2, h3, h4, h5, h6, table, th, td, tr, tbody, thead, tfoot {
+        background-color: transparent !important;
+        color: #E0E0E0 !important;
+        border-color: #333333 !important;
+      }
+      img, svg, video, iframe, canvas, figure, .figure {
+        background-color: transparent !important;
+        filter: brightness(0.9) contrast(1.1) !important;
+      }
+      pre, code, kbd, samp {
+        background-color: #1E1E1E !important;
+        color: #E1E1E6 !important;
+        border: 1px solid #333333 !important;
+      }
+      input, button, select, textarea {
+        background-color: #2D2D2D !important;
+        color: #E0E0E0 !important;
+        border: 1px solid #4D4D4D !important;
+      }
+      ::selection {
+        background-color: #315C87 !important;
+        color: #FFFFFF !important;
+      }
+      hr {
+        border-color: #444444 !important;
+      }
+      /* Specific PMC Elements Overrides */
+      .pmc-footnote, .pmc_reference, .ref-list, .half_out, .back-matter {
+        background-color: transparent !important;
+      }
+      .fm-sec, .abstract, .kwd-group, .custom-meta-group {
+        background-color: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid #333 !important;
+      }
+      .pmc-icon {
+        filter: invert(1) hue-rotate(180deg) brightness(0.8) !important;
+      }
+      .tsec {
+        background-color: #1a1a1a !important;
+      }
+    `;
+    document.head.appendChild(style);
+  })();
+  """;
+
   // ── TOC bottom sheet ─────────────────────────────────────────────────────────
 
   Future<void> _showToc() async {
@@ -584,6 +648,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         source: _disableLinksJs,
                       );
                       if (!mounted) return;
+
+                      // Inject dark mode CSS before content becomes visible if needed
+                      final brightness = Theme.of(context).brightness;
+                      if (brightness == Brightness.dark) {
+                        await controller.evaluateJavascript(source: _darkModeJs);
+                        if (!mounted) return;
+                      }
 
                       // Apply padding to push content below the overlapping AppBar and above the bottom nav bar
                       final baseAppBarHeight = kToolbarHeight + topPadding;

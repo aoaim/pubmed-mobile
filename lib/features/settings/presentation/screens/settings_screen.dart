@@ -353,7 +353,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.info_outline),
                   title: const Text('PubMed'),
-                  subtitle: Text('Unofficial Mobile App for PubMed\n${l10n.version} 0.1.0'),
+                  subtitle: Text('Unofficial Mobile App for PubMed\n${l10n.version} 0.1.1'),
                   isThreeLine: true,
                 ),
                 const Divider(height: 1),
