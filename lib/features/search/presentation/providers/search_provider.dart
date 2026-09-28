@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pubmed_mobile/core/analytics/analytics.dart';
 import 'package:pubmed_mobile/features/search/data/repositories/article_repository.dart';
 import 'package:pubmed_mobile/features/search/domain/entities/article.dart';
 import 'package:pubmed_mobile/features/settings/data/settings_repository.dart';
@@ -69,12 +70,14 @@ class SearchNotifier extends StateNotifier<SearchState> {
   final ArticleRepository _repository;
   final SettingsRepository _settings;
 
-  /// In-memory search result cache (key: "query|sort").
+  /// In-memory search result cache (query and sort).
   final Map<String, _CachedSearch> _cache = {};
+  int _searchRevision = 0;
 
   /// Update query text without triggering search.
   void onQueryChanged(String query) {
     if (query.trim().isEmpty) {
+      _searchRevision++;
       state = const SearchState();
       return;
     }
@@ -86,7 +89,8 @@ class SearchNotifier extends StateNotifier<SearchState> {
     if (query.trim().isEmpty) return;
 
     final sortBy = sort ?? state.sort;
-    final cacheKey = '$query|$sortBy';
+    final revision = ++_searchRevision;
+    final cacheKey = '$sortBy|$query';
 
     // 1. Check in-memory session cache
     final memoryCached = _cache[cacheKey];
@@ -104,7 +108,23 @@ class SearchNotifier extends StateNotifier<SearchState> {
       );
     } else {
       // 2. Fallback to 7-day SQLite cache if no memory cache
-      final dbCached = await _repository.searchArticlesCached(query: query, pageSize: _settings.pageSize);
+      state = state.copyWith(
+        query: query,
+        articles: const [],
+        totalCount: 0,
+        currentPage: 0,
+        sort: sortBy,
+        isLoading: true,
+        isRevalidating: false,
+        clearError: true,
+        clearSuggestion: true,
+      );
+      final dbCached = await _repository.searchArticlesCached(
+        query: query,
+        pageSize: _settings.pageSize,
+        sort: sortBy,
+      );
+      if (revision != _searchRevision) return;
       if (dbCached != null) {
         state = state.copyWith(
           query: query,
@@ -114,16 +134,6 @@ class SearchNotifier extends StateNotifier<SearchState> {
           sort: sortBy,
           isLoading: false,
           isRevalidating: true,
-          clearError: true,
-          clearSuggestion: true,
-        );
-      } else {
-        // 3. No cache available, show skeleton screen
-        state = state.copyWith(
-          query: query,
-          isLoading: true,
-          currentPage: 0,
-          sort: sortBy,
           clearError: true,
           clearSuggestion: true,
         );
@@ -139,6 +149,8 @@ class SearchNotifier extends StateNotifier<SearchState> {
         sort: sortBy,
       );
 
+      if (revision != _searchRevision) return;
+
       // Update in-memory session cache.
       _cache[cacheKey] = _CachedSearch(articles: articles, totalCount: total);
 
@@ -152,19 +164,23 @@ class SearchNotifier extends StateNotifier<SearchState> {
         );
       }
 
+      Analytics.track(AnalyticsEvents.searchPerformed, {
+        'query': query,
+        'sort': sortBy,
+        'resultCount': total,
+      });
+
       // Check spelling in background
-      _checkSpelling(query);
+      _checkSpelling(query, revision);
     } catch (e) {
+      if (revision != _searchRevision) return;
       // If we already showed cached data, don't overwrite with error.
       if (state.articles.isNotEmpty && state.query == query) {
         // Silently ignore – user sees stale data, but stop revalidating indicator.
         state = state.copyWith(isRevalidating: false);
         return;
       }
-      state = state.copyWith(
-        isLoading: false,
-        error: e.toString(),
-      );
+      state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
@@ -173,6 +189,7 @@ class SearchNotifier extends StateNotifier<SearchState> {
     if (!state.hasMore || state.isLoadingMore || state.isLoading) return;
 
     state = state.copyWith(isLoadingMore: true);
+    final revision = _searchRevision;
     final nextPage = state.currentPage + 1;
 
     try {
@@ -183,6 +200,8 @@ class SearchNotifier extends StateNotifier<SearchState> {
         sort: state.sort,
       );
 
+      if (revision != _searchRevision) return;
+
       state = state.copyWith(
         articles: [...state.articles, ...articles],
         totalCount: total,
@@ -190,10 +209,8 @@ class SearchNotifier extends StateNotifier<SearchState> {
         isLoadingMore: false,
       );
     } catch (e) {
-      state = state.copyWith(
-        isLoadingMore: false,
-        error: e.toString(),
-      );
+      if (revision != _searchRevision) return;
+      state = state.copyWith(isLoadingMore: false, error: e.toString());
     }
   }
 
@@ -203,10 +220,12 @@ class SearchNotifier extends StateNotifier<SearchState> {
     await search(state.query, sort: sort);
   }
 
-  Future<void> _checkSpelling(String query) async {
+  Future<void> _checkSpelling(String query, int revision) async {
     try {
       final suggestion = await _repository.spellCheck(query);
-      if (suggestion != null && state.query == query) {
+      if (suggestion != null &&
+          revision == _searchRevision &&
+          state.query == query) {
         state = state.copyWith(spellingSuggestion: suggestion);
       }
     } catch (_) {
@@ -216,8 +235,9 @@ class SearchNotifier extends StateNotifier<SearchState> {
 }
 
 /// Provider for search state.
-final searchProvider =
-    StateNotifierProvider<SearchNotifier, SearchState>((ref) {
+final searchProvider = StateNotifierProvider<SearchNotifier, SearchState>((
+  ref,
+) {
   return SearchNotifier(
     ref.watch(articleRepositoryProvider),
     ref.watch(settingsRepositoryProvider),

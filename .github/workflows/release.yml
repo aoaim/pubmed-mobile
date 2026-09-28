@@ -17,6 +17,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Prepare Release notes from CHANGELOG.md
+        env:
+          RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+          python3 .github/scripts/generate_release_notes.py
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -33,7 +40,12 @@ jobs:
         run: flutter pub get
 
       - name: Build Code Generation (Freezed / Drift)
-        run: dart run build_runner build --delete-conflicting-outputs
+        run: dart run build_runner build
+
+      - name: Validate app and changelog
+        run: |
+          flutter analyze
+          flutter test
 
       - name: Prepare Keystore File & Properties
         env:
@@ -58,10 +70,11 @@ jobs:
           mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/PubMedMobile-${{ github.ref_name }}-arm64.apk
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: build/app/outputs/flutter-apk/PubMedMobile-${{ github.ref_name }}-arm64.apk
           name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
+          generate_release_notes: false

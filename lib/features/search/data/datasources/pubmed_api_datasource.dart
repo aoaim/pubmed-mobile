@@ -64,7 +64,8 @@ class PubmedApiDataSource {
 
       final item = result[key] as Map<String, dynamic>;
 
-      final authorList = (item['authors'] as List<dynamic>?)
+      final authorList =
+          (item['authors'] as List<dynamic>?)
               ?.map((a) => (a as Map<String, dynamic>)['name'] as String? ?? '')
               .where((n) => n.isNotEmpty)
               .toList() ??
@@ -73,17 +74,20 @@ class PubmedApiDataSource {
       final doi = _extractDoi(item);
       final pmcid = _extractPmcid(item);
 
-      articles.add(Article(
-        pmid: pmid,
-        title: item['title'] as String? ?? '',
-        authors: authorList,
-        journal: item['fulljournalname'] as String? ??
-            item['source'] as String? ??
-            '',
-        pubDate: item['pubdate'] as String? ?? '',
-        doi: doi,
-        pmcid: pmcid,
-      ));
+      articles.add(
+        Article(
+          pmid: pmid,
+          title: item['title'] as String? ?? '',
+          authors: authorList,
+          journal:
+              item['fulljournalname'] as String? ??
+              item['source'] as String? ??
+              '',
+          pubDate: item['pubdate'] as String? ?? '',
+          doi: doi,
+          pmcid: pmcid,
+        ),
+      );
     }
 
     return articles;
@@ -110,16 +114,33 @@ class PubmedApiDataSource {
 
     // Authors
     final authorElements = article.findAllElements('Author');
-    final authors = authorElements.map((a) {
-      final lastName = a.findElements('LastName').firstOrNull?.innerText ?? '';
-      final foreName = a.findElements('ForeName').firstOrNull?.innerText ?? '';
-      return '$lastName $foreName'.trim();
-    }).where((n) => n.isNotEmpty).toList();
+    final authors = authorElements
+        .map((a) {
+          final lastName =
+              a.findElements('LastName').firstOrNull?.innerText ?? '';
+          final foreName =
+              a.findElements('ForeName').firstOrNull?.innerText ?? '';
+          return '$lastName $foreName'.trim();
+        })
+        .where((n) => n.isNotEmpty)
+        .toList();
+    final affiliations = authorElements
+        .expand((author) => author.findElements('AffiliationInfo'))
+        .expand((info) => info.findElements('Affiliation'))
+        .map((affiliation) => affiliation.innerText.trim())
+        .where((affiliation) => affiliation.isNotEmpty)
+        .toSet()
+        .toList();
 
     // Journal
     final journal =
-        article.findAllElements('Journal').firstOrNull
-            ?.findElements('Title').firstOrNull?.innerText ?? '';
+        article
+            .findAllElements('Journal')
+            .firstOrNull
+            ?.findElements('Title')
+            .firstOrNull
+            ?.innerText ??
+        '';
 
     // PubDate
     final pubDateEl = article.findAllElements('PubDate').firstOrNull;
@@ -137,13 +158,15 @@ class PubmedApiDataSource {
     final abstractText = abstractParts.join('\n\n');
 
     // DOI
-    final doiEl = article.findAllElements('ArticleId')
+    final doiEl = article
+        .findAllElements('ArticleId')
         .where((el) => el.getAttribute('IdType') == 'doi')
         .firstOrNull;
     final doi = doiEl?.innerText;
 
     // PMC ID
-    final pmcEl = article.findAllElements('ArticleId')
+    final pmcEl = article
+        .findAllElements('ArticleId')
         .where((el) => el.getAttribute('IdType') == 'pmc')
         .firstOrNull;
     final pmcid = pmcEl?.innerText;
@@ -151,8 +174,9 @@ class PubmedApiDataSource {
     // MeSH terms
     final meshTerms = article
         .findAllElements('MeshHeading')
-        .map((m) =>
-            m.findElements('DescriptorName').firstOrNull?.innerText ?? '')
+        .map(
+          (m) => m.findElements('DescriptorName').firstOrNull?.innerText ?? '',
+        )
         .where((t) => t.isNotEmpty)
         .toList();
 
@@ -160,6 +184,7 @@ class PubmedApiDataSource {
       pmid: pmid,
       title: title,
       authors: authors,
+      affiliations: affiliations,
       journal: journal,
       pubDate: pubDate,
       doi: doi,
@@ -174,11 +199,7 @@ class PubmedApiDataSource {
   Future<String?> spellCheck(String query) async {
     final response = await _dio.get(
       'espell.fcgi',
-      queryParameters: {
-        'db': 'pubmed',
-        'term': query,
-        'retmode': 'json',
-      },
+      queryParameters: {'db': 'pubmed', 'term': query, 'retmode': 'json'},
     );
 
     final data = response.data['espellresult'] as Map<String, dynamic>?;

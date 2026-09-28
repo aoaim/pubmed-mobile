@@ -1,7 +1,9 @@
 import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pubmed_mobile/features/settings/data/settings_repository.dart';
+import 'package:pubmed_mobile/features/article_detail/domain/journal_metric.dart';
 
 /// easyScholar journal ranking service.
 ///
@@ -11,11 +13,13 @@ class EasyScholarService {
   EasyScholarService({required this.settings});
 
   final SettingsRepository settings;
-  final Dio _dio = Dio(BaseOptions(
-    baseUrl: 'https://www.easyscholar.cc/open',
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 10),
-  ));
+  final Dio _dio = Dio(
+    BaseOptions(
+      baseUrl: 'https://www.easyscholar.cc/open',
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ),
+  );
 
   /// In-memory cache: journal name → ranking data.
   final Map<String, JournalRanking?> _cache = {};
@@ -83,14 +87,7 @@ class EasyScholarService {
       final officialRank = data['data']['officialRank'];
       final all = officialRank?['all'] as Map<String, dynamic>? ?? {};
 
-      final ranking = JournalRanking(
-        sciPartition: all['sci']?.toString(),         // JCR SCI 分区
-        sciIf: all['sciif']?.toString(),               // SCI 影响因子
-        sciUpPartition: all['sciUp']?.toString(),      // 中科院升级版大类分区
-        sciUpSmall: all['sciUpSmall']?.toString(),     // 中科院升级版小类分区
-        sciUpTop: all['sciUpTop']?.toString(),         // 中科院升级版Top
-        esi: all['esi']?.toString(),                   // ESI学科分类
-      );
+      final ranking = JournalRanking.fromOfficialRank(all);
 
       _cache[normalized] = ranking;
       return ranking;
@@ -103,36 +100,20 @@ class EasyScholarService {
 
 /// Journal ranking data from easyScholar.
 class JournalRanking {
-  const JournalRanking({
-    this.sciPartition,
-    this.sciIf,
-    this.sciUpPartition,
-    this.sciUpSmall,
-    this.sciUpTop,
-    this.esi,
-  });
+  JournalRanking.fromOfficialRank(Map<String, dynamic> all)
+    : values = {
+        for (final metric in JournalMetric.values)
+          if (all[metric.apiKey]?.toString().trim().isNotEmpty == true)
+            metric: all[metric.apiKey].toString().trim(),
+      };
 
-  /// JCR SCI 分区 (e.g. "Q1")
-  final String? sciPartition;
-  /// SCI 影响因子 (e.g. "13.6")
-  final String? sciIf;
-  /// 中科院升级版大类分区 (e.g. "1区")
-  final String? sciUpPartition;
-  /// 中科院升级版小类分区 (e.g. "医学1区")
-  final String? sciUpSmall;
-  /// 中科院升级版Top分区 (e.g. "医学TOP")
-  final String? sciUpTop;
-  /// ESI学科分类 (e.g. "CLINICAL MEDICINE")
-  final String? esi;
-
-  /// Whether any ranking data is available.
-  bool get hasData =>
-      sciPartition != null ||
-      sciIf != null ||
-      sciUpPartition != null;
+  final Map<JournalMetric, String> values;
+  String? valueFor(JournalMetric metric) => values[metric];
+  bool get hasData => values.isNotEmpty;
 }
 
 /// Provider for EasyScholarService.
 final easyScholarServiceProvider = Provider<EasyScholarService>((ref) {
+  ref.watch(credentialsRevisionProvider);
   return EasyScholarService(settings: ref.watch(settingsRepositoryProvider));
 });

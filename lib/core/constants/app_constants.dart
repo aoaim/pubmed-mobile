@@ -8,7 +8,6 @@ class AppConstants {
   static const String ncbiBaseUrl =
       'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
   static const String toolName = 'pubmed_mobile';
-  static const String contactEmail = 'pubmedmobile@example.com';
 
   // Rate limiting
   static const int rateLimitWithoutKey = 3; // requests per second
@@ -22,9 +21,10 @@ class AppConstants {
   static const int detailCacheDays = 30;
   static const int defaultMaxCacheMB = 200;
 
+  // Translation
+  static const String defaultOpenaiBaseUrl = 'https://api.deepseek.com';
+  static const String defaultOpenaiModel = 'deepseek-flash';
+
   // History
   static const int maxHistoryItems = 50;
-
-  // Debounce
-  static const Duration searchDebounceDuration = Duration(milliseconds: 500);
 }

@@ -1,12 +1,19 @@
 import 'dart:convert';
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pubmed_mobile/core/l10n/app_localizations.dart';
+import 'package:pubmed_mobile/core/analytics/analytics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pubmed_mobile/features/settings/data/settings_repository.dart';
 import 'package:pubmed_mobile/core/database/app_database.dart';
+import 'package:pubmed_mobile/features/reader/domain/pmc_page.dart';
+import 'package:pubmed_mobile/features/article_detail/data/services/translation_service.dart';
+import 'package:pubmed_mobile/features/article_detail/domain/translation_failure.dart';
 
 /// PMC full-text reader using InAppWebView.
 ///
@@ -16,7 +23,8 @@ import 'package:pubmed_mobile/core/database/app_database.dart';
 ///     If not found, load the live URL, then cache the result.
 ///   - Manual refresh (↺ button): clears the DB row for this PMCID, then
 ///     re-fetches from network and caches the new version.
-///   - No automatic expiry — PMC articles don't change after publication.
+///   - No automatic expiry; the oldest entries are evicted when the configured
+///     cache size limit is exceeded.
 class ReaderScreen extends ConsumerStatefulWidget {
   const ReaderScreen({super.key, required this.pmcid});
 
@@ -46,9 +54,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // Whether we are currently fetching from DB
   bool _isCheckingCache = true;
   String? _cachedHtml;
+  bool _loadedFromCache = false;
+  bool _didCacheCurrentPage = false;
+  int _webViewGeneration = 0;
+  bool _readerTranslationEnabled = false;
+  bool _isTranslatingParagraph = false;
+  bool _readerWaitingHintShown = false;
+  Timer? _translationDebounce;
+  CancelToken? _paragraphCancelToken;
+  int _translationRevision = 0;
+  final Map<String, String> _paragraphTranslations = {};
 
-  String get _url =>
-      'https://www.ncbi.nlm.nih.gov/pmc/articles/${widget.pmcid}/';
+  String get _url => PmcPage.canonicalUrl(widget.pmcid);
 
   AppDatabase get _db => ref.read(databaseProvider);
 
@@ -61,18 +78,232 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _checkCache();
   }
 
+  @override
+  void dispose() {
+    _cancelParagraphTranslation(refresh: false);
+    super.dispose();
+  }
+
+  void _cancelParagraphTranslation({bool refresh = true}) {
+    _translationRevision++;
+    _translationDebounce?.cancel();
+    _paragraphCancelToken?.cancel('Paragraph left the viewport');
+    _paragraphCancelToken = null;
+    if (_isTranslatingParagraph) {
+      _isTranslatingParagraph = false;
+      if (refresh && mounted) setState(() {});
+    }
+  }
+
+  void _scheduleVisibleTranslation() {
+    if (!_readerTranslationEnabled || !_showTocFabs) return;
+    _cancelParagraphTranslation();
+    final revision = _translationRevision;
+    _translationDebounce = Timer(const Duration(milliseconds: 650), () {
+      _translateVisibleParagraphs(revision);
+    });
+  }
+
+  Future<void> _toggleReaderTranslation() async {
+    final settings = ref.read(settingsRepositoryProvider);
+    if (!_readerTranslationEnabled) {
+      final hasKey = settings.translationChannel == TranslationChannel.deepl
+          ? settings.deeplApiKey?.isNotEmpty == true
+          : settings.openaiApiKey?.isNotEmpty == true;
+      if (!hasKey) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).translationNoProvider),
+          ),
+        );
+        return;
+      }
+    }
+    _cancelParagraphTranslation();
+    setState(() => _readerTranslationEnabled = !_readerTranslationEnabled);
+    final ctrl = _controller;
+    if (ctrl == null) return;
+    if (_readerTranslationEnabled) {
+      await ctrl.evaluateJavascript(source: _readerTranslationSetupJs);
+      if (mounted) _scheduleVisibleTranslation();
+    } else {
+      _readerWaitingHintShown = false;
+      await ctrl.evaluateJavascript(source: _readerTranslationClearJs);
+    }
+  }
+
+  Future<bool> _isParagraphVisible(
+    InAppWebViewController ctrl,
+    String id,
+  ) async {
+    final raw = await ctrl.evaluateJavascript(
+      source:
+          '''
+      (function() {
+        var p = document.querySelector('[data-pubmed-translate-id="' + ${jsonEncode(id)} + '"]');
+        if (!p) return false;
+        var r = p.getBoundingClientRect();
+        return r.bottom > 0 && r.top < window.innerHeight;
+      })();
+    ''',
+    );
+    return raw == true || raw?.toString() == 'true';
+  }
+
+  Future<void> _translateVisibleParagraphs(int revision) async {
+    final ctrl = _controller;
+    if (ctrl == null ||
+        !mounted ||
+        !_readerTranslationEnabled ||
+        revision != _translationRevision) {
+      return;
+    }
+    try {
+      final raw = await ctrl.evaluateJavascript(
+        source: _readerVisibleParagraphsJs,
+      );
+      if (!mounted || revision != _translationRevision) return;
+      final json = _normalizeEvaluatedHtml(raw);
+      final paragraphs = (jsonDecode(json ?? '[]') as List)
+          .cast<Map<String, dynamic>>();
+      if (paragraphs.isEmpty && !_readerWaitingHintShown) {
+        _readerWaitingHintShown = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context).readerTranslationWaiting,
+            ),
+          ),
+        );
+      }
+      for (final paragraph in paragraphs) {
+        if (!mounted ||
+            revision != _translationRevision ||
+            !_readerTranslationEnabled) {
+          return;
+        }
+        final id = paragraph['id'] as String?;
+        final source = paragraph['text'] as String?;
+        if (id == null || source == null || source.isEmpty) continue;
+        if (!await _isParagraphVisible(ctrl, id)) continue;
+        if (revision != _translationRevision) return;
+        var translated = _paragraphTranslations[source];
+        if (translated == null) {
+          final token = CancelToken();
+          _paragraphCancelToken = token;
+          setState(() => _isTranslatingParagraph = true);
+          translated = await ref
+              .read(translationServiceProvider)
+              .translate(source, cancelToken: token);
+          if (!mounted ||
+              revision != _translationRevision ||
+              token.isCancelled) {
+            return;
+          }
+          _paragraphTranslations[source] = translated;
+          _paragraphCancelToken = null;
+          setState(() => _isTranslatingParagraph = false);
+        }
+        if (!await _isParagraphVisible(ctrl, id)) continue;
+        if (revision != _translationRevision) return;
+        await ctrl.evaluateJavascript(
+          source:
+              '''
+          (function() {
+            var p = document.querySelector('[data-pubmed-translate-id="' + ${jsonEncode(id)} + '"]');
+            if (!p) return;
+            var next = p.nextElementSibling;
+            if (next && next.dataset.pubmedTranslationFor === ${jsonEncode(id)}) return;
+            var translation = document.createElement('p');
+            translation.className = p.className;
+            translation.style.cssText = p.style.cssText;
+            translation.dataset.pubmedTranslationFor = ${jsonEncode(id)};
+            translation.lang = 'zh-CN';
+            translation.textContent = ${jsonEncode(translated)};
+            p.insertAdjacentElement('afterend', translation);
+          })();
+        ''',
+        );
+      }
+    } on DioException catch (error) {
+      if (error.type != DioExceptionType.cancel) _showReaderTranslationError();
+    } on TranslationFailure catch (failure) {
+      debugPrint('Reader translation failed: ${failure.kind.name}');
+      _showReaderTranslationError(failure);
+    } catch (error) {
+      debugPrint('Reader translation failed: $error');
+      _showReaderTranslationError();
+    } finally {
+      if (revision == _translationRevision) {
+        _paragraphCancelToken = null;
+        if (_isTranslatingParagraph && mounted) {
+          setState(() => _isTranslatingParagraph = false);
+        }
+      }
+    }
+  }
+
+  void _showReaderTranslationError([TranslationFailure? failure]) {
+    if (!mounted || !_readerTranslationEnabled) return;
+    final l10n = AppLocalizations.of(context);
+    final reason = switch (failure?.kind) {
+      TranslationFailureKind.invalidApiKey => l10n.translationInvalidApiKey,
+      TranslationFailureKind.quotaExceeded => l10n.translationQuotaExceeded,
+      TranslationFailureKind.rateLimited => l10n.translationRateLimited,
+      TranslationFailureKind.network => l10n.translationNetworkError,
+      TranslationFailureKind.serviceUnavailable =>
+        l10n.translationServiceUnavailable,
+      TranslationFailureKind.invalidResponse => l10n.translationInvalidResponse,
+      TranslationFailureKind.noProviderConfigured => l10n.translationNoProvider,
+      _ => l10n.translationError,
+    };
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reason)));
+  }
+
   Future<void> _checkCache() async {
+    Analytics.track(AnalyticsEvents.readerOpened, {'pmcid': widget.pmcid});
+
     final cached = await ref.read(databaseProvider).getPmcHtml(widget.pmcid);
     var cachedHtml = cached?.html;
 
-    if (cachedHtml != null && !_looksLikeUsableCachedHtml(cachedHtml)) {
+    if (cachedHtml != null && !PmcPage.isReadableArticle(cachedHtml)) {
       await _db.deletePmcHtml(widget.pmcid);
       cachedHtml = null;
+    }
+
+    // Fetch the document with Dart before handing it to WebView. Loading the
+    // public PMC URL directly can leave an empty surface when an Android
+    // System WebView renderer crashes during network-page initialization.
+    // Supplying verified HTML as initialData also lets us reject browser-check
+    // pages before they reach the reader.
+    if (cachedHtml == null) {
+      try {
+        final response = await Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 15),
+            receiveTimeout: const Duration(seconds: 20),
+            responseType: ResponseType.plain,
+            headers: const {
+              'User-Agent':
+                  'PubMedMobile/0.1 (+https://github.com/aoaim/pubmed-mobile)',
+            },
+          ),
+        ).get<String>(_url);
+        final downloadedHtml = response.data;
+        if (downloadedHtml != null &&
+            PmcPage.isReadableArticle(downloadedHtml)) {
+          cachedHtml = downloadedHtml;
+          await _storePmcHtml(downloadedHtml);
+        }
+      } catch (error) {
+        debugPrint('PMC HTML download failed for ${widget.pmcid}: $error');
+      }
     }
 
     if (mounted) {
       setState(() {
         _cachedHtml = cachedHtml;
+        _loadedFromCache = cachedHtml != null;
         _isCheckingCache = false;
       });
     }
@@ -116,17 +347,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return text;
   }
 
-  bool _looksLikeReadablePmcHtml(String html) {
-    if (html.length < 1000) return false;
-    if (html.length >= 8000) return true;
-    return html.contains('pmc-article-section') ||
-        html.contains('<article') ||
-        html.contains('<main');
-  }
-
-  bool _looksLikeUsableCachedHtml(String html) {
-    if (_looksLikeReadablePmcHtml(html)) return true;
-    return html.length >= 2000;
+  Future<void> _storePmcHtml(String html) async {
+    await _db.upsertPmcHtml(widget.pmcid, html);
+    final maxSizeMb = ref.read(settingsRepositoryProvider).maxCacheMB;
+    await _db.trimPmcCacheToSizeMb(maxSizeMb);
   }
 
   /// Capture outerHTML and save to DB (called after live network load).
@@ -146,8 +370,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       for (var i = 0; i < 8; i++) {
         final htmlFromApi = await ctrl.getHtml();
         collectBest(htmlFromApi);
-        if (htmlFromApi != null && _looksLikeReadablePmcHtml(htmlFromApi)) {
-          await _db.upsertPmcHtml(widget.pmcid, htmlFromApi);
+        if (htmlFromApi != null && PmcPage.isReadableArticle(htmlFromApi)) {
+          await _storePmcHtml(htmlFromApi);
           return true;
         }
 
@@ -168,8 +392,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
         final html = _normalizeEvaluatedHtml(raw);
         collectBest(html);
-        if (html != null && _looksLikeReadablePmcHtml(html)) {
-          await _db.upsertPmcHtml(widget.pmcid, html);
+        if (html != null && PmcPage.isReadableArticle(html)) {
+          await _storePmcHtml(html);
           return true;
         }
 
@@ -179,8 +403,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       debugPrint('PMC cache save failed for ${widget.pmcid}: $e');
     }
 
-    if (bestHtml != null && _looksLikeUsableCachedHtml(bestHtml!)) {
-      await _db.upsertPmcHtml(widget.pmcid, bestHtml!);
+    if (bestHtml != null && PmcPage.isReadableArticle(bestHtml!)) {
+      await _storePmcHtml(bestHtml!);
       return true;
     }
 
@@ -188,6 +412,35 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   // ── JS snippets ──────────────────────────────────────────────────────────────
+
+  static const String _readerTranslationSetupJs = r"""
+  (function() {
+    document.querySelectorAll('.pmc-article-section section.abstract p, .pmc-article-section .main-article-body p').forEach(function(p, index) {
+      if (p.hasAttribute('data-pubmed-translation-for')) return;
+      if (!p.dataset.pubmedTranslateId) p.dataset.pubmedTranslateId = String(index);
+      if (p.__pubmedOriginalText === undefined) p.__pubmedOriginalText = p.textContent.replace(/\s+/g, ' ').trim();
+    });
+  })();
+  """;
+
+  static const String _readerVisibleParagraphsJs = r"""
+  (function() {
+    var visible = [];
+    document.querySelectorAll('[data-pubmed-translate-id]').forEach(function(p) {
+      var next = p.nextElementSibling;
+      if (next && next.dataset.pubmedTranslationFor === p.dataset.pubmedTranslateId) return;
+      var r = p.getBoundingClientRect();
+      if (r.bottom <= 0 || r.top >= window.innerHeight) return;
+      var text = p.__pubmedOriginalText || p.textContent.replace(/\s+/g, ' ').trim();
+      if (text) visible.push({id: p.dataset.pubmedTranslateId, text: text});
+    });
+    return JSON.stringify(visible);
+  })();
+  """;
+
+  static const String _readerTranslationClearJs = r"""
+  document.querySelectorAll('[data-pubmed-translation-for]').forEach(function(p) { p.remove(); });
+  """;
 
   static const String _immersiveJs = r"""
   (function() {
@@ -208,15 +461,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (disclaimer) disclaimer.style.display = 'none';
 
     document.body.appendChild(article);
-
-    // Disable ALL in-page hyperlinks (prevent accidental navigation in immersive mode)
-    document.addEventListener('click', function(e) {
-      var a = e.target.closest('a');
-      if (a) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    }, true);
 
     // Scroll-direction detector
     var lastY = 0;
@@ -373,9 +617,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     } catch (_) {}
 
     if (items.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No headings found')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No headings found')));
       return;
     }
 
@@ -460,15 +703,37 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // ── Refresh ──────────────────────────────────────────────────────────────────
 
   Future<void> _refresh() async {
-    // Clear DB cache for this article so the next load fetches from network
+    _cancelParagraphTranslation();
+    _paragraphTranslations.clear();
     await _db.deletePmcHtml(widget.pmcid);
+    if (!mounted) return;
+    _controller = null;
     setState(() {
       _hasError = false;
       _progress = 0;
+      _isCheckingCache = true;
       _cachedHtml = null;
+      _loadedFromCache = false;
+      _didCacheCurrentPage = false;
+      _showTocFabs = false;
+      _webViewGeneration++;
     });
-    // Load the live URL
-    await _controller?.loadUrl(urlRequest: URLRequest(url: WebUri(_url)));
+    await _checkCache();
+  }
+
+  Future<bool> _pageContainsArticle(InAppWebViewController controller) async {
+    try {
+      final result = await controller.evaluateJavascript(
+        source:
+            "Boolean(document.querySelector('.pmc-article-section') && "
+            "(document.querySelector('.main-article-body') || "
+            "document.querySelector('.pmc_sec_title') || "
+            "document.querySelector('article')));",
+      );
+      return result == true || result?.toString() == 'true';
+    } catch (_) {
+      return false;
+    }
   }
 
   // ── Build ────────────────────────────────────────────────────────────────────
@@ -488,9 +753,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           tooltip: 'Copy URL',
           onPressed: () {
             Clipboard.setData(ClipboardData(text: _url));
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(l10n.copied)));
+            ScaffoldMessenger.of(context)
+                .showSnackBar(SnackBar(content: Text(l10n.copied)));
           },
         ),
         IconButton(
@@ -555,13 +819,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     ),
                   )
                 : InAppWebView(
+                    key: ValueKey(_webViewGeneration),
                     initialUrlRequest: _cachedHtml != null
                         ? null
                         : URLRequest(url: WebUri(_url)),
                     initialData: _cachedHtml != null
                         ? InAppWebViewInitialData(
                             data: _cachedHtml!,
-                            baseUrl: WebUri('https://www.ncbi.nlm.nih.gov/'),
+                            baseUrl: WebUri(_url),
                             encoding: 'utf-8',
                             mimeType: 'text/html',
                           )
@@ -569,6 +834,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     initialSettings: InAppWebViewSettings(
                       javaScriptEnabled: true,
                       useShouldOverrideUrlLoading: true,
+                      // Virtual-display composition avoids renderer crashes seen
+                      // with hybrid composition on some Android/WebView builds.
+                      useHybridComposition: false,
+                      // Keep this reader on a software layer. Android 16
+                      // emulator images shipping WebView 133 can terminate the
+                      // renderer while compositing a full PMC article.
+                      hardwareAcceleration: false,
                       mediaPlaybackRequiresUserGesture: true,
                       allowsInlineMediaPlayback: true,
                       // Keep browser-level cache active for sub-resources
@@ -583,6 +855,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       controller.addJavaScriptHandler(
                         handlerName: 'onScroll',
                         callback: (args) {
+                          if (_readerTranslationEnabled) {
+                            _scheduleVisibleTranslation();
+                          }
                           final dir = args.isNotEmpty ? args[0] as String : '';
                           final y = args.length > 1
                               ? (args[1] as num).toDouble()
@@ -612,21 +887,35 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
                       // Fetch context-dependent values BEFORE any async gaps
                       final topPadding = MediaQuery.of(context).padding.top;
-                      final bottomPadding = MediaQuery.of(
-                        context,
-                      ).padding.bottom;
+                      final bottomPadding = MediaQuery.of(context)
+                          .padding
+                          .bottom;
                       final shouldSimplify = ref.read(
                         simplifyPmcReaderProvider,
                       );
+                      final brightness = Theme.of(context).brightness;
+
+                      final containsArticle = await _pageContainsArticle(
+                        controller,
+                      );
+                      if (!mounted) return;
+                      if (!containsArticle) {
+                        if (_loadedFromCache) {
+                          await _db.deletePmcHtml(widget.pmcid);
+                          if (!mounted) return;
+                        }
+                        setState(() {
+                          _hasError = true;
+                          _showTocFabs = false;
+                        });
+                        return;
+                      }
 
                       // Save HTML to DB only on live network loads, BEFORE modifying the DOM
-                      if (_cachedHtml == null) {
-                        final saved = await _saveCacheFromPage(controller);
+                      if (!_loadedFromCache && !_didCacheCurrentPage) {
+                        await _saveCacheFromPage(controller);
                         if (!mounted) return;
-                        if (saved) {
-                          // mark as cached to prevent multiple saves on same session
-                          _cachedHtml = 'saved';
-                        }
+                        _didCacheCurrentPage = true;
                       }
 
                       if (shouldSimplify) {
@@ -650,9 +939,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       if (!mounted) return;
 
                       // Inject dark mode CSS before content becomes visible if needed
-                      final brightness = Theme.of(context).brightness;
                       if (brightness == Brightness.dark) {
-                        await controller.evaluateJavascript(source: _darkModeJs);
+                        await controller.evaluateJavascript(
+                          source: _darkModeJs,
+                        );
                         if (!mounted) return;
                       }
 
@@ -664,39 +954,57 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       );
                       if (!mounted) return;
 
+                      if (shouldSimplify && _readerTranslationEnabled) {
+                        await controller.evaluateJavascript(
+                          source: _readerTranslationSetupJs,
+                        );
+                        if (!mounted) return;
+                        _scheduleVisibleTranslation();
+                      }
+
                       _setAppBarVisible(true);
                     },
                     onProgressChanged: (controller, progress) {
+                      if (!mounted) return;
                       setState(() => _progress = progress / 100);
                     },
                     onReceivedError: (controller, request, error) {
-                      if (request.isForMainFrame ?? false) {
+                      if (mounted && (request.isForMainFrame ?? false)) {
                         setState(() => _hasError = true);
                       }
                     },
-                    shouldOverrideUrlLoading: (controller, navigationAction) async {
-                      final requestUrl = navigationAction.request.url;
-                      if (requestUrl == null) {
-                        return NavigationActionPolicy.ALLOW;
+                    onReceivedHttpError: (controller, request, response) {
+                      final status = response.statusCode ?? 0;
+                      if (mounted &&
+                          (request.isForMainFrame ?? false) &&
+                          status >= 400) {
+                        setState(() => _hasError = true);
                       }
-
-                      final scheme = requestUrl.scheme.toLowerCase();
-                      // Cached HTML from initialData is loaded as about:/data: URL.
-                      // Blocking these schemes causes a white screen on second open.
-                      if (scheme == 'about' ||
-                          scheme == 'data' ||
-                          scheme == 'file' ||
-                          scheme == 'blob') {
-                        return NavigationActionPolicy.ALLOW;
-                      }
-
-                      final host = requestUrl.host.toLowerCase();
-                      if (host.endsWith('ncbi.nlm.nih.gov') ||
-                          host.endsWith('nih.gov')) {
-                        return NavigationActionPolicy.ALLOW;
-                      }
-                      return NavigationActionPolicy.CANCEL;
                     },
+                    shouldOverrideUrlLoading:
+                        (controller, navigationAction) async {
+                          final requestUrl = navigationAction.request.url;
+                          if (requestUrl == null) {
+                            return NavigationActionPolicy.ALLOW;
+                          }
+
+                          final scheme = requestUrl.scheme.toLowerCase();
+                          // Cached HTML from initialData is loaded as about:/data: URL.
+                          // Blocking these schemes causes a white screen on second open.
+                          if (scheme == 'about' ||
+                              scheme == 'data' ||
+                              scheme == 'file' ||
+                              scheme == 'blob') {
+                            return NavigationActionPolicy.ALLOW;
+                          }
+
+                          final host = requestUrl.host.toLowerCase();
+                          if (host.endsWith('ncbi.nlm.nih.gov') ||
+                              host.endsWith('nih.gov')) {
+                            return NavigationActionPolicy.ALLOW;
+                          }
+                          return NavigationActionPolicy.CANCEL;
+                        },
                   ),
           ),
 
@@ -724,6 +1032,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _FabButton(
+                    tooltip: _readerTranslationEnabled
+                        ? l10n.readerTranslationOff
+                        : l10n.readerTranslationOn,
+                    icon: Icons.translate_rounded,
+                    active: _readerTranslationEnabled,
+                    busy: _isTranslatingParagraph,
+                    onPressed: _toggleReaderTranslation,
+                  ),
+                  const SizedBox(height: 8),
+                  _FabButton(
                     tooltip: 'Table of Contents',
                     icon: Icons.list_alt_rounded,
                     onPressed: _showToc,
@@ -741,8 +1059,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     tooltip: 'Scroll to bottom',
                     icon: Icons.keyboard_double_arrow_down_rounded,
                     onPressed: () => _controller?.evaluateJavascript(
-                      source:
-                          "window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});",
+                      source: "window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});",
                     ),
                   ),
                 ],
@@ -761,11 +1078,15 @@ class _FabButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.active = false,
+    this.busy = false,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
+  final bool active;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -773,7 +1094,9 @@ class _FabButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.92),
+        color: active
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHigh.withValues(alpha: 0.92),
         shape: const CircleBorder(),
         elevation: 3,
         child: InkWell(
@@ -781,7 +1104,20 @@ class _FabButton extends StatelessWidget {
           onTap: onPressed,
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: Icon(icon, size: 22, color: colorScheme.onSurface),
+            child: busy
+                ? SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: colorScheme.primary,
+                    ),
+                  )
+                : Icon(
+                    icon,
+                    size: 22,
+                    color: active ? colorScheme.primary : colorScheme.onSurface,
+                  ),
           ),
         ),
       ),

@@ -6,7 +6,6 @@ import 'package:pubmed_mobile/core/l10n/app_localizations.dart';
 import 'package:pubmed_mobile/core/database/app_database.dart';
 import 'package:pubmed_mobile/features/search/presentation/providers/search_provider.dart';
 import 'package:pubmed_mobile/features/search/presentation/widgets/article_card.dart';
-import 'package:shimmer/shimmer.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -77,7 +76,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final state = ref.watch(searchProvider);
 
     // If there are results, loading, a query, or error, stay in search mode
-    if (state.articles.isNotEmpty || state.isLoading || state.query.isNotEmpty || state.error != null) {
+    if (state.articles.isNotEmpty ||
+        state.isLoading ||
+        state.query.isNotEmpty ||
+        state.error != null) {
       _isInSearchMode = true;
     }
 
@@ -88,10 +90,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
             return Stack(
               alignment: Alignment.topCenter,
-              children: <Widget>[
-                ...previousChildren,
-                if (currentChild != null) currentChild,
-              ],
+              children: <Widget>[...previousChildren, ?currentChild],
             );
           },
           child: _isInSearchMode
@@ -138,17 +137,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(28),
                 borderSide: BorderSide(
-                    color: theme.colorScheme.outline.withValues(alpha: 0.5)),
+                  color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(28),
-                borderSide:
-                    BorderSide(color: theme.colorScheme.primary, width: 1.5),
+                borderSide: BorderSide(
+                  color: theme.colorScheme.primary,
+                  width: 1.5,
+                ),
               ),
               filled: true,
               fillColor: theme.colorScheme.surfaceContainerLow,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
             ),
             textInputAction: TextInputAction.search,
             onSubmitted: (value) {
@@ -224,8 +228,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     filled: true,
                     fillColor: theme.colorScheme.surfaceContainerHighest
                         .withValues(alpha: 0.6),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
                     isDense: true,
                   ),
                   textInputAction: TextInputAction.search,
@@ -252,6 +258,33 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ],
           ),
         ),
+
+        // Initial-load indicator: no cached data yet, results are fetching.
+        if (state.isLoading)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            color: theme.colorScheme.secondaryContainer,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.searching,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
         // Revalidating indicator (stale-while-revalidate)
         if (state.isRevalidating)
@@ -307,10 +340,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       value: 'relevance',
                       label: Text(l10n.sortByRelevance),
                     ),
-                    ButtonSegment(
-                      value: 'date',
-                      label: Text(l10n.sortByDate),
-                    ),
+                    ButtonSegment(value: 'date', label: Text(l10n.sortByDate)),
                   ],
                   selected: {state.sort},
                   onSelectionChanged: (set) {
@@ -337,8 +367,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 padding: const EdgeInsets.all(8),
                 child: Row(
                   children: [
-                    Icon(Icons.auto_fix_high,
-                        size: 16, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.auto_fix_high,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 8),
                     Text.rich(
                       TextSpan(
@@ -373,9 +406,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildContent(
-      BuildContext context, SearchState state, AppLocalizations l10n) {
+    BuildContext context,
+    SearchState state,
+    AppLocalizations l10n,
+  ) {
     if (state.isLoading) {
-      return _buildShimmer(context);
+      return const _SearchSkeleton();
     }
 
     if (state.error != null) {
@@ -385,15 +421,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline,
-                  size: 48, color: Theme.of(context).colorScheme.error),
+              Icon(
+                Icons.error_outline,
+                size: 48,
+                color: Theme.of(context).colorScheme.error,
+              ),
               const SizedBox(height: 16),
-              Text(l10n.searchError,
-                  style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                l10n.searchError,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 8),
-              Text(state.error!,
-                  style: Theme.of(context).textTheme.bodySmall,
-                  textAlign: TextAlign.center),
+              Text(
+                state.error!,
+                style: Theme.of(context).textTheme.bodySmall,
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 16),
               FilledButton.tonal(
                 onPressed: () =>
@@ -415,12 +458,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.search_off,
-                size: 48,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.search_off,
+              size: 48,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 16),
-            Text(l10n.noResults,
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              l10n.noResults,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
           ],
         ),
       );
@@ -466,18 +513,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.manage_search,
-                    size: 48,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurfaceVariant
-                        .withValues(alpha: 0.4)),
+                Icon(
+                  Icons.manage_search,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant
+                      .withValues(alpha: 0.4),
+                ),
                 const SizedBox(height: 16),
-                Text(l10n.searchHint,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant,
-                        )),
+                Text(
+                  l10n.searchHint,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           );
@@ -490,8 +538,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: Row(
                 children: [
-                  Text(l10n.recentSearches,
-                      style: Theme.of(context).textTheme.titleSmall),
+                  Text(
+                    l10n.recentSearches,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                   const Spacer(),
                   TextButton(
                     onPressed: () async {
@@ -513,6 +563,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     dense: true,
                     leading: const Icon(Icons.history, size: 20),
                     title: Text(item.query),
+                    subtitle: item.sort == 'date'
+                        ? Text(l10n.sortByDate)
+                        : null,
                     trailing: IconButton(
                       icon: const Icon(Icons.close, size: 18),
                       onPressed: () async {
@@ -522,7 +575,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     ),
                     onTap: () {
                       _searchController.text = item.query;
-                      ref.read(searchProvider.notifier).search(item.query);
+                      ref
+                          .read(searchProvider.notifier)
+                          .search(item.query, sort: item.sort);
                     },
                   );
                 },
@@ -533,73 +588,113 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       },
     );
   }
+}
 
-  Widget _buildShimmer(BuildContext context) {
+/// Pulsing placeholder list shown while the first page of results loads.
+///
+/// Uses a plain opacity pulse instead of a ShaderMask-based shimmer:
+/// on the Impeller renderer the mask can render the whole placeholder area
+/// invisible, which makes the page look like it is frozen.
+class _SearchSkeleton extends StatefulWidget {
+  const _SearchSkeleton();
+
+  @override
+  State<_SearchSkeleton> createState() => _SearchSkeletonState();
+}
+
+class _SearchSkeletonState extends State<_SearchSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _pulse = Tween<double>(
+      begin: 0.45,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _pulse,
+      child: ListView.builder(
+        key: const ValueKey('skeleton'),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: 6,
+        itemBuilder: (context, index) => const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: _SkeletonCard(),
+        ),
+      ),
+    );
+  }
+}
+
+/// Single skeleton card mirroring [ArticleCard]'s layout (title / authors /
+/// journal + date) so the switch to real content feels continuous.
+class _SkeletonCard extends StatelessWidget {
+  const _SkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ListView.builder(
-      key: const ValueKey('shimmer'),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: 8,
-      itemBuilder: (context, index) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Card(
-            elevation: 0,
-            clipBehavior: Clip.antiAlias,
-            // Ensure Card itself is clearly visible with normal surface color
-            color: theme.colorScheme.surface,
-            shape: RoundedRectangleBorder(
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Shimmer.fromColors(
-                baseColor: theme.colorScheme.surfaceContainerHighest,
-                highlightColor: theme.colorScheme.surfaceContainer,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                        height: 16,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(4),
-                        )),
-                    const SizedBox(height: 8),
-                    Container(
-                        height: 16,
-                        width: 200,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(4),
-                        )),
-                    const SizedBox(height: 12),
-                    Container(
-                        height: 12,
-                        width: 150,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(4),
-                        )),
-                    const SizedBox(height: 4),
-                    Container(
-                        height: 12,
-                        width: 100,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(4),
-                        )),
-                  ],
-                ),
-              ),
-            ),
+    final barColor = theme.colorScheme.onSurface.withValues(alpha: 0.12);
+
+    Widget bar({double widthFactor = 1, double height = 12}) {
+      return FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: widthFactor,
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: barColor,
+            borderRadius: BorderRadius.circular(4),
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            bar(height: 14),
+            const SizedBox(height: 8),
+            bar(widthFactor: 0.6, height: 14),
+            const SizedBox(height: 14),
+            bar(widthFactor: 0.45),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(child: bar(widthFactor: 0.8)),
+                const SizedBox(width: 24),
+                SizedBox(width: 56, child: bar()),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

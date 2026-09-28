@@ -4,11 +4,12 @@ part 'article.freezed.dart';
 
 /// Domain entity for a PubMed article.
 @freezed
-class Article with _$Article {
+abstract class Article with _$Article {
   const factory Article({
     required int pmid,
     required String title,
     @Default([]) List<String> authors,
+    @Default([]) List<String> affiliations,
     @Default('') String journal,
     @Default('') String pubDate,
     String? doi,
@@ -24,7 +25,7 @@ class Article with _$Article {
 /// Whether this article has PMC full text available.
 extension ArticleX on Article {
   bool get hasFullText => pmcid != null && pmcid!.isNotEmpty;
-  String get pmcUrl => 'https://www.ncbi.nlm.nih.gov/pmc/articles/$pmcid/';
+  String get pmcUrl => 'https://pmc.ncbi.nlm.nih.gov/articles/$pmcid/';
   String get pubmedUrl => 'https://pubmed.ncbi.nlm.nih.gov/$pmid/';
   String get doiUrl => doi != null ? 'https://doi.org/$doi' : '';
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:pubmed_mobile/core/constants/app_constants.dart';
 import 'package:pubmed_mobile/core/database/app_database.dart';
@@ -9,10 +10,7 @@ import 'package:pubmed_mobile/core/network/dio_client.dart';
 
 /// Repository bridging API data source and local cache.
 class ArticleRepository {
-  ArticleRepository({
-    required this.api,
-    required this.db,
-  });
+  ArticleRepository({required this.api, required this.db});
 
   final PubmedApiDataSource api;
   final AppDatabase db;
@@ -22,25 +20,28 @@ class ArticleRepository {
   Future<(List<Article>, int totalCount)?> searchArticlesCached({
     required String query,
     int pageSize = AppConstants.defaultPageSize,
+    String sort = 'relevance',
   }) async {
-    final history = await db.getHistory(query);
+    final history = await db.getHistory(query, sort: sort);
     if (history != null && history.pmids != null) {
       final age = DateTime.now().difference(history.searchedAt);
       if (age.inDays <= AppConstants.searchCacheDays) {
         try {
           final pmids = (jsonDecode(history.pmids!) as List<dynamic>)
               .map((e) => e as int)
+              .take(pageSize)
               .toList();
-              
-          // Fetch cached articles for these PMIDs
+
+          // Fetch the page in one query, then restore PubMed result order.
+          final cachedByPmid = await db.getCachedArticles(pmids);
           final cachedArticles = <Article>[];
-          for (final pmid in pmids.take(pageSize)) {
-            final cached = await db.getCachedArticle(pmid);
+          for (final pmid in pmids) {
+            final cached = cachedByPmid[pmid];
             if (cached != null) {
               cachedArticles.add(_cachedToArticle(cached));
             }
           }
-          
+
           if (cachedArticles.isNotEmpty) {
             return (cachedArticles, history.resultCount);
           }
@@ -59,7 +60,6 @@ class ArticleRepository {
     int pageSize = AppConstants.defaultPageSize,
     String sort = 'relevance',
   }) async {
-
     final searchResult = await api.search(
       query: query,
       retStart: page * pageSize,
@@ -73,16 +73,27 @@ class ArticleRepository {
 
     final articles = await api.fetchSummaries(searchResult.pmids);
 
-    // Cache results
-    for (final article in articles) {
-      await _cacheArticle(article);
-    }
+    // One read and one transaction instead of two round trips per article.
+    await db.transaction(() async {
+      final existing = await db.getCachedArticles(
+        articles.map((article) => article.pmid),
+      );
+      for (final article in articles) {
+        await db.upsertCachedArticle(
+          _cacheEntry(article, existing[article.pmid]),
+        );
+      }
+    });
 
-    // Save search to history with PMIDs (only for first page to define the "cache")
+    // Keep the first page's PMIDs for offline search. Loading more must not
+    // replace them with a history entry that has no cached PMID list.
     if (page == 0) {
-      await db.addHistory(query, searchResult.totalCount, pmids: jsonEncode(searchResult.pmids));
-    } else {
-      await db.addHistory(query, searchResult.totalCount);
+      await db.addHistory(
+        query,
+        searchResult.totalCount,
+        pmids: jsonEncode(searchResult.pmids),
+        sort: sort,
+      );
     }
 
     return (articles, searchResult.totalCount);
@@ -90,7 +101,10 @@ class ArticleRepository {
 
   /// Get full article detail; tries cache first.
   /// If [forceRefresh] is true, always fetch from API.
-  Future<Article> getArticleDetail(int pmid, {bool forceRefresh = false}) async {
+  Future<Article> getArticleDetail(
+    int pmid, {
+    bool forceRefresh = false,
+  }) async {
     if (!forceRefresh) {
       // Check cache
       final cached = await db.getCachedArticle(pmid);
@@ -119,36 +133,62 @@ class ArticleRepository {
 
   Future<void> _cacheArticle(Article article) async {
     final existing = await db.getCachedArticle(article.pmid);
-    String? existingTranslatedTitle;
-    String? existingTranslatedAbstract;
-    
-    if (existing != null) {
-      existingTranslatedTitle = existing.translatedTitle;
-      existingTranslatedAbstract = existing.translatedAbstract;
-    }
-
-    await db.upsertCachedArticle(CachedArticlesCompanion(
-      pmid: Value(article.pmid),
-      title: Value(article.title),
-      authors: Value(jsonEncode(article.authors)),
-      journal: Value(article.journal),
-      pubDate: Value(article.pubDate),
-      doi: Value(article.doi),
-      pmcid: Value(article.pmcid),
-      abstract_: Value(article.abstract_),
-      translatedTitle: Value(article.translatedTitle ?? existingTranslatedTitle),
-      translatedAbstract: Value(article.translatedAbstract ?? existingTranslatedAbstract),
-      meshTerms: Value(jsonEncode(article.meshTerms)),
-      hasFullDetail: Value(article.hasFullDetail),
-      cachedAt: Value(DateTime.now()),
-    ));
+    await db.upsertCachedArticle(_cacheEntry(article, existing));
   }
 
-  Future<void> updateArticleTranslation(int pmid, String translatedTitle, String translatedAbstract) async {
-    await (db.update(db.cachedArticles)..where((t) => t.pmid.equals(pmid))).write(
+  CachedArticlesCompanion _cacheEntry(
+    Article article,
+    CachedArticle? existing,
+  ) => CachedArticlesCompanion(
+    pmid: Value(article.pmid),
+    title: Value(article.title),
+    authors: Value(jsonEncode(article.authors)),
+    affiliations: Value(
+      article.hasFullDetail
+          ? jsonEncode(article.affiliations)
+          : existing?.affiliations ?? '[]',
+    ),
+    journal: Value(article.journal),
+    pubDate: Value(article.pubDate),
+    doi: Value(article.doi),
+    pmcid: Value(article.pmcid),
+    abstract_: Value(
+      article.hasFullDetail
+          ? article.abstract_
+          : existing?.abstract_ ?? article.abstract_,
+    ),
+    translatedTitle: Value(
+      article.translatedTitle ?? existing?.translatedTitle,
+    ),
+    translatedAbstract: Value(
+      article.translatedAbstract ?? existing?.translatedAbstract,
+    ),
+    meshTerms: Value(
+      article.hasFullDetail
+          ? jsonEncode(article.meshTerms)
+          : existing?.meshTerms ?? '[]',
+    ),
+    hasFullDetail: Value(
+      article.hasFullDetail || (existing?.hasFullDetail ?? false),
+    ),
+    cachedAt: Value(DateTime.now()),
+  );
+
+  Future<void> updateArticleTranslation(
+    int pmid, {
+    String? translatedTitle,
+    String? translatedAbstract,
+  }) async {
+    await (db.update(
+      db.cachedArticles,
+    )..where((t) => t.pmid.equals(pmid))).write(
       CachedArticlesCompanion(
-        translatedTitle: Value(translatedTitle),
-        translatedAbstract: Value(translatedAbstract),
+        translatedTitle: translatedTitle == null
+            ? const Value.absent()
+            : Value(translatedTitle),
+        translatedAbstract: translatedAbstract == null
+            ? const Value.absent()
+            : Value(translatedAbstract),
       ),
     );
   }
@@ -158,6 +198,9 @@ class ArticleRepository {
       pmid: cached.pmid,
       title: cached.title,
       authors: (jsonDecode(cached.authors) as List<dynamic>)
+          .map((e) => e as String)
+          .toList(),
+      affiliations: (jsonDecode(cached.affiliations) as List<dynamic>)
           .map((e) => e as String)
           .toList(),
       journal: cached.journal,

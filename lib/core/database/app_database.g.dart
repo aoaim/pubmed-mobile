@@ -39,6 +39,18 @@ class $CachedArticlesTable extends CachedArticles
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _affiliationsMeta = const VerificationMeta(
+    'affiliations',
+  );
+  @override
+  late final GeneratedColumn<String> affiliations = GeneratedColumn<String>(
+    'affiliations',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
   static const VerificationMeta _journalMeta = const VerificationMeta(
     'journal',
   );
@@ -158,6 +170,7 @@ class $CachedArticlesTable extends CachedArticles
     pmid,
     title,
     authors,
+    affiliations,
     journal,
     pubDate,
     doi,
@@ -199,6 +212,15 @@ class $CachedArticlesTable extends CachedArticles
       context.handle(
         _authorsMeta,
         authors.isAcceptableOrUnknown(data['authors']!, _authorsMeta),
+      );
+    }
+    if (data.containsKey('affiliations')) {
+      context.handle(
+        _affiliationsMeta,
+        affiliations.isAcceptableOrUnknown(
+          data['affiliations']!,
+          _affiliationsMeta,
+        ),
       );
     }
     if (data.containsKey('journal')) {
@@ -293,6 +315,10 @@ class $CachedArticlesTable extends CachedArticles
         DriftSqlType.string,
         data['${effectivePrefix}authors'],
       )!,
+      affiliations: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}affiliations'],
+      )!,
       journal: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}journal'],
@@ -346,6 +372,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
   final int pmid;
   final String title;
   final String authors;
+  final String affiliations;
   final String journal;
   final String pubDate;
   final String? doi;
@@ -360,6 +387,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
     required this.pmid,
     required this.title,
     required this.authors,
+    required this.affiliations,
     required this.journal,
     required this.pubDate,
     this.doi,
@@ -377,6 +405,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
     map['pmid'] = Variable<int>(pmid);
     map['title'] = Variable<String>(title);
     map['authors'] = Variable<String>(authors);
+    map['affiliations'] = Variable<String>(affiliations);
     map['journal'] = Variable<String>(journal);
     map['pub_date'] = Variable<String>(pubDate);
     if (!nullToAbsent || doi != null) {
@@ -403,6 +432,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
       pmid: Value(pmid),
       title: Value(title),
       authors: Value(authors),
+      affiliations: Value(affiliations),
       journal: Value(journal),
       pubDate: Value(pubDate),
       doi: doi == null && nullToAbsent ? const Value.absent() : Value(doi),
@@ -431,6 +461,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
       pmid: serializer.fromJson<int>(json['pmid']),
       title: serializer.fromJson<String>(json['title']),
       authors: serializer.fromJson<String>(json['authors']),
+      affiliations: serializer.fromJson<String>(json['affiliations']),
       journal: serializer.fromJson<String>(json['journal']),
       pubDate: serializer.fromJson<String>(json['pubDate']),
       doi: serializer.fromJson<String?>(json['doi']),
@@ -452,6 +483,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
       'pmid': serializer.toJson<int>(pmid),
       'title': serializer.toJson<String>(title),
       'authors': serializer.toJson<String>(authors),
+      'affiliations': serializer.toJson<String>(affiliations),
       'journal': serializer.toJson<String>(journal),
       'pubDate': serializer.toJson<String>(pubDate),
       'doi': serializer.toJson<String?>(doi),
@@ -469,6 +501,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
     int? pmid,
     String? title,
     String? authors,
+    String? affiliations,
     String? journal,
     String? pubDate,
     Value<String?> doi = const Value.absent(),
@@ -483,6 +516,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
     pmid: pmid ?? this.pmid,
     title: title ?? this.title,
     authors: authors ?? this.authors,
+    affiliations: affiliations ?? this.affiliations,
     journal: journal ?? this.journal,
     pubDate: pubDate ?? this.pubDate,
     doi: doi.present ? doi.value : this.doi,
@@ -503,6 +537,9 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
       pmid: data.pmid.present ? data.pmid.value : this.pmid,
       title: data.title.present ? data.title.value : this.title,
       authors: data.authors.present ? data.authors.value : this.authors,
+      affiliations: data.affiliations.present
+          ? data.affiliations.value
+          : this.affiliations,
       journal: data.journal.present ? data.journal.value : this.journal,
       pubDate: data.pubDate.present ? data.pubDate.value : this.pubDate,
       doi: data.doi.present ? data.doi.value : this.doi,
@@ -528,6 +565,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
           ..write('pmid: $pmid, ')
           ..write('title: $title, ')
           ..write('authors: $authors, ')
+          ..write('affiliations: $affiliations, ')
           ..write('journal: $journal, ')
           ..write('pubDate: $pubDate, ')
           ..write('doi: $doi, ')
@@ -547,6 +585,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
     pmid,
     title,
     authors,
+    affiliations,
     journal,
     pubDate,
     doi,
@@ -565,6 +604,7 @@ class CachedArticle extends DataClass implements Insertable<CachedArticle> {
           other.pmid == this.pmid &&
           other.title == this.title &&
           other.authors == this.authors &&
+          other.affiliations == this.affiliations &&
           other.journal == this.journal &&
           other.pubDate == this.pubDate &&
           other.doi == this.doi &&
@@ -581,6 +621,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
   final Value<int> pmid;
   final Value<String> title;
   final Value<String> authors;
+  final Value<String> affiliations;
   final Value<String> journal;
   final Value<String> pubDate;
   final Value<String?> doi;
@@ -595,6 +636,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
     this.pmid = const Value.absent(),
     this.title = const Value.absent(),
     this.authors = const Value.absent(),
+    this.affiliations = const Value.absent(),
     this.journal = const Value.absent(),
     this.pubDate = const Value.absent(),
     this.doi = const Value.absent(),
@@ -610,6 +652,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
     this.pmid = const Value.absent(),
     required String title,
     this.authors = const Value.absent(),
+    this.affiliations = const Value.absent(),
     this.journal = const Value.absent(),
     this.pubDate = const Value.absent(),
     this.doi = const Value.absent(),
@@ -626,6 +669,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
     Expression<int>? pmid,
     Expression<String>? title,
     Expression<String>? authors,
+    Expression<String>? affiliations,
     Expression<String>? journal,
     Expression<String>? pubDate,
     Expression<String>? doi,
@@ -641,6 +685,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
       if (pmid != null) 'pmid': pmid,
       if (title != null) 'title': title,
       if (authors != null) 'authors': authors,
+      if (affiliations != null) 'affiliations': affiliations,
       if (journal != null) 'journal': journal,
       if (pubDate != null) 'pub_date': pubDate,
       if (doi != null) 'doi': doi,
@@ -658,6 +703,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
     Value<int>? pmid,
     Value<String>? title,
     Value<String>? authors,
+    Value<String>? affiliations,
     Value<String>? journal,
     Value<String>? pubDate,
     Value<String?>? doi,
@@ -673,6 +719,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
       pmid: pmid ?? this.pmid,
       title: title ?? this.title,
       authors: authors ?? this.authors,
+      affiliations: affiliations ?? this.affiliations,
       journal: journal ?? this.journal,
       pubDate: pubDate ?? this.pubDate,
       doi: doi ?? this.doi,
@@ -697,6 +744,9 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
     }
     if (authors.present) {
       map['authors'] = Variable<String>(authors.value);
+    }
+    if (affiliations.present) {
+      map['affiliations'] = Variable<String>(affiliations.value);
     }
     if (journal.present) {
       map['journal'] = Variable<String>(journal.value);
@@ -737,6 +787,7 @@ class CachedArticlesCompanion extends UpdateCompanion<CachedArticle> {
           ..write('pmid: $pmid, ')
           ..write('title: $title, ')
           ..write('authors: $authors, ')
+          ..write('affiliations: $affiliations, ')
           ..write('journal: $journal, ')
           ..write('pubDate: $pubDate, ')
           ..write('doi: $doi, ')
@@ -1293,6 +1344,31 @@ class $SearchHistoryTable extends SearchHistory
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _pmcOnlyMeta = const VerificationMeta(
+    'pmcOnly',
+  );
+  @override
+  late final GeneratedColumn<bool> pmcOnly = GeneratedColumn<bool>(
+    'pmc_only',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("pmc_only" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _sortMeta = const VerificationMeta('sort');
+  @override
+  late final GeneratedColumn<String> sort = GeneratedColumn<String>(
+    'sort',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('relevance'),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1300,6 +1376,8 @@ class $SearchHistoryTable extends SearchHistory
     resultCount,
     searchedAt,
     pmids,
+    pmcOnly,
+    sort,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1347,6 +1425,18 @@ class $SearchHistoryTable extends SearchHistory
         pmids.isAcceptableOrUnknown(data['pmids']!, _pmidsMeta),
       );
     }
+    if (data.containsKey('pmc_only')) {
+      context.handle(
+        _pmcOnlyMeta,
+        pmcOnly.isAcceptableOrUnknown(data['pmc_only']!, _pmcOnlyMeta),
+      );
+    }
+    if (data.containsKey('sort')) {
+      context.handle(
+        _sortMeta,
+        sort.isAcceptableOrUnknown(data['sort']!, _sortMeta),
+      );
+    }
     return context;
   }
 
@@ -1376,6 +1466,14 @@ class $SearchHistoryTable extends SearchHistory
         DriftSqlType.string,
         data['${effectivePrefix}pmids'],
       ),
+      pmcOnly: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}pmc_only'],
+      )!,
+      sort: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sort'],
+      )!,
     );
   }
 
@@ -1392,12 +1490,16 @@ class SearchHistoryData extends DataClass
   final int resultCount;
   final DateTime searchedAt;
   final String? pmids;
+  final bool pmcOnly;
+  final String sort;
   const SearchHistoryData({
     required this.id,
     required this.query,
     required this.resultCount,
     required this.searchedAt,
     this.pmids,
+    required this.pmcOnly,
+    required this.sort,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1409,6 +1511,8 @@ class SearchHistoryData extends DataClass
     if (!nullToAbsent || pmids != null) {
       map['pmids'] = Variable<String>(pmids);
     }
+    map['pmc_only'] = Variable<bool>(pmcOnly);
+    map['sort'] = Variable<String>(sort);
     return map;
   }
 
@@ -1421,6 +1525,8 @@ class SearchHistoryData extends DataClass
       pmids: pmids == null && nullToAbsent
           ? const Value.absent()
           : Value(pmids),
+      pmcOnly: Value(pmcOnly),
+      sort: Value(sort),
     );
   }
 
@@ -1435,6 +1541,8 @@ class SearchHistoryData extends DataClass
       resultCount: serializer.fromJson<int>(json['resultCount']),
       searchedAt: serializer.fromJson<DateTime>(json['searchedAt']),
       pmids: serializer.fromJson<String?>(json['pmids']),
+      pmcOnly: serializer.fromJson<bool>(json['pmcOnly']),
+      sort: serializer.fromJson<String>(json['sort']),
     );
   }
   @override
@@ -1446,6 +1554,8 @@ class SearchHistoryData extends DataClass
       'resultCount': serializer.toJson<int>(resultCount),
       'searchedAt': serializer.toJson<DateTime>(searchedAt),
       'pmids': serializer.toJson<String?>(pmids),
+      'pmcOnly': serializer.toJson<bool>(pmcOnly),
+      'sort': serializer.toJson<String>(sort),
     };
   }
 
@@ -1455,12 +1565,16 @@ class SearchHistoryData extends DataClass
     int? resultCount,
     DateTime? searchedAt,
     Value<String?> pmids = const Value.absent(),
+    bool? pmcOnly,
+    String? sort,
   }) => SearchHistoryData(
     id: id ?? this.id,
     query: query ?? this.query,
     resultCount: resultCount ?? this.resultCount,
     searchedAt: searchedAt ?? this.searchedAt,
     pmids: pmids.present ? pmids.value : this.pmids,
+    pmcOnly: pmcOnly ?? this.pmcOnly,
+    sort: sort ?? this.sort,
   );
   SearchHistoryData copyWithCompanion(SearchHistoryCompanion data) {
     return SearchHistoryData(
@@ -1473,6 +1587,8 @@ class SearchHistoryData extends DataClass
           ? data.searchedAt.value
           : this.searchedAt,
       pmids: data.pmids.present ? data.pmids.value : this.pmids,
+      pmcOnly: data.pmcOnly.present ? data.pmcOnly.value : this.pmcOnly,
+      sort: data.sort.present ? data.sort.value : this.sort,
     );
   }
 
@@ -1483,13 +1599,16 @@ class SearchHistoryData extends DataClass
           ..write('query: $query, ')
           ..write('resultCount: $resultCount, ')
           ..write('searchedAt: $searchedAt, ')
-          ..write('pmids: $pmids')
+          ..write('pmids: $pmids, ')
+          ..write('pmcOnly: $pmcOnly, ')
+          ..write('sort: $sort')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, query, resultCount, searchedAt, pmids);
+  int get hashCode =>
+      Object.hash(id, query, resultCount, searchedAt, pmids, pmcOnly, sort);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1498,7 +1617,9 @@ class SearchHistoryData extends DataClass
           other.query == this.query &&
           other.resultCount == this.resultCount &&
           other.searchedAt == this.searchedAt &&
-          other.pmids == this.pmids);
+          other.pmids == this.pmids &&
+          other.pmcOnly == this.pmcOnly &&
+          other.sort == this.sort);
 }
 
 class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
@@ -1507,12 +1628,16 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
   final Value<int> resultCount;
   final Value<DateTime> searchedAt;
   final Value<String?> pmids;
+  final Value<bool> pmcOnly;
+  final Value<String> sort;
   const SearchHistoryCompanion({
     this.id = const Value.absent(),
     this.query = const Value.absent(),
     this.resultCount = const Value.absent(),
     this.searchedAt = const Value.absent(),
     this.pmids = const Value.absent(),
+    this.pmcOnly = const Value.absent(),
+    this.sort = const Value.absent(),
   });
   SearchHistoryCompanion.insert({
     this.id = const Value.absent(),
@@ -1520,6 +1645,8 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
     this.resultCount = const Value.absent(),
     required DateTime searchedAt,
     this.pmids = const Value.absent(),
+    this.pmcOnly = const Value.absent(),
+    this.sort = const Value.absent(),
   }) : query = Value(query),
        searchedAt = Value(searchedAt);
   static Insertable<SearchHistoryData> custom({
@@ -1528,6 +1655,8 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
     Expression<int>? resultCount,
     Expression<DateTime>? searchedAt,
     Expression<String>? pmids,
+    Expression<bool>? pmcOnly,
+    Expression<String>? sort,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1535,6 +1664,8 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
       if (resultCount != null) 'result_count': resultCount,
       if (searchedAt != null) 'searched_at': searchedAt,
       if (pmids != null) 'pmids': pmids,
+      if (pmcOnly != null) 'pmc_only': pmcOnly,
+      if (sort != null) 'sort': sort,
     });
   }
 
@@ -1544,6 +1675,8 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
     Value<int>? resultCount,
     Value<DateTime>? searchedAt,
     Value<String?>? pmids,
+    Value<bool>? pmcOnly,
+    Value<String>? sort,
   }) {
     return SearchHistoryCompanion(
       id: id ?? this.id,
@@ -1551,6 +1684,8 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
       resultCount: resultCount ?? this.resultCount,
       searchedAt: searchedAt ?? this.searchedAt,
       pmids: pmids ?? this.pmids,
+      pmcOnly: pmcOnly ?? this.pmcOnly,
+      sort: sort ?? this.sort,
     );
   }
 
@@ -1572,6 +1707,12 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
     if (pmids.present) {
       map['pmids'] = Variable<String>(pmids.value);
     }
+    if (pmcOnly.present) {
+      map['pmc_only'] = Variable<bool>(pmcOnly.value);
+    }
+    if (sort.present) {
+      map['sort'] = Variable<String>(sort.value);
+    }
     return map;
   }
 
@@ -1582,7 +1723,9 @@ class SearchHistoryCompanion extends UpdateCompanion<SearchHistoryData> {
           ..write('query: $query, ')
           ..write('resultCount: $resultCount, ')
           ..write('searchedAt: $searchedAt, ')
-          ..write('pmids: $pmids')
+          ..write('pmids: $pmids, ')
+          ..write('pmcOnly: $pmcOnly, ')
+          ..write('sort: $sort')
           ..write(')'))
         .toString();
   }
@@ -1880,6 +2023,7 @@ typedef $$CachedArticlesTableCreateCompanionBuilder =
       Value<int> pmid,
       required String title,
       Value<String> authors,
+      Value<String> affiliations,
       Value<String> journal,
       Value<String> pubDate,
       Value<String?> doi,
@@ -1896,6 +2040,7 @@ typedef $$CachedArticlesTableUpdateCompanionBuilder =
       Value<int> pmid,
       Value<String> title,
       Value<String> authors,
+      Value<String> affiliations,
       Value<String> journal,
       Value<String> pubDate,
       Value<String?> doi,
@@ -1929,6 +2074,11 @@ class $$CachedArticlesTableFilterComposer
 
   ColumnFilters<String> get authors => $composableBuilder(
     column: $table.authors,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get affiliations => $composableBuilder(
+    column: $table.affiliations,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2007,6 +2157,11 @@ class $$CachedArticlesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get affiliations => $composableBuilder(
+    column: $table.affiliations,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get journal => $composableBuilder(
     column: $table.journal,
     builder: (column) => ColumnOrderings(column),
@@ -2075,6 +2230,11 @@ class $$CachedArticlesTableAnnotationComposer
 
   GeneratedColumn<String> get authors =>
       $composableBuilder(column: $table.authors, builder: (column) => column);
+
+  GeneratedColumn<String> get affiliations => $composableBuilder(
+    column: $table.affiliations,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get journal =>
       $composableBuilder(column: $table.journal, builder: (column) => column);
@@ -2149,6 +2309,7 @@ class $$CachedArticlesTableTableManager
                 Value<int> pmid = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String> authors = const Value.absent(),
+                Value<String> affiliations = const Value.absent(),
                 Value<String> journal = const Value.absent(),
                 Value<String> pubDate = const Value.absent(),
                 Value<String?> doi = const Value.absent(),
@@ -2163,6 +2324,7 @@ class $$CachedArticlesTableTableManager
                 pmid: pmid,
                 title: title,
                 authors: authors,
+                affiliations: affiliations,
                 journal: journal,
                 pubDate: pubDate,
                 doi: doi,
@@ -2179,6 +2341,7 @@ class $$CachedArticlesTableTableManager
                 Value<int> pmid = const Value.absent(),
                 required String title,
                 Value<String> authors = const Value.absent(),
+                Value<String> affiliations = const Value.absent(),
                 Value<String> journal = const Value.absent(),
                 Value<String> pubDate = const Value.absent(),
                 Value<String?> doi = const Value.absent(),
@@ -2193,6 +2356,7 @@ class $$CachedArticlesTableTableManager
                 pmid: pmid,
                 title: title,
                 authors: authors,
+                affiliations: affiliations,
                 journal: journal,
                 pubDate: pubDate,
                 doi: doi,
@@ -2205,7 +2369,16 @@ class $$CachedArticlesTableTableManager
                 cachedAt: cachedAt,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$CachedArticlesTable, CachedArticle>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $CachedArticlesTable,
+                    CachedArticle
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -2229,28 +2402,26 @@ typedef $$CachedArticlesTableProcessedTableManager =
       CachedArticle,
       PrefetchHooks Function()
     >;
-typedef $$FavoritesTableCreateCompanionBuilder =
-    FavoritesCompanion Function({
-      Value<int> pmid,
-      required String title,
-      Value<String> authors,
-      Value<String> journal,
-      Value<String> pubDate,
-      Value<String?> doi,
-      Value<String?> pmcid,
-      required DateTime addedAt,
-    });
-typedef $$FavoritesTableUpdateCompanionBuilder =
-    FavoritesCompanion Function({
-      Value<int> pmid,
-      Value<String> title,
-      Value<String> authors,
-      Value<String> journal,
-      Value<String> pubDate,
-      Value<String?> doi,
-      Value<String?> pmcid,
-      Value<DateTime> addedAt,
-    });
+typedef $$FavoritesTableCreateCompanionBuilder = FavoritesCompanion Function({
+  Value<int> pmid,
+  required String title,
+  Value<String> authors,
+  Value<String> journal,
+  Value<String> pubDate,
+  Value<String?> doi,
+  Value<String?> pmcid,
+  required DateTime addedAt,
+});
+typedef $$FavoritesTableUpdateCompanionBuilder = FavoritesCompanion Function({
+  Value<int> pmid,
+  Value<String> title,
+  Value<String> authors,
+  Value<String> journal,
+  Value<String> pubDate,
+  Value<String?> doi,
+  Value<String?> pmcid,
+  Value<DateTime> addedAt,
+});
 
 class $$FavoritesTableFilterComposer
     extends Composer<_$AppDatabase, $FavoritesTable> {
@@ -2453,7 +2624,16 @@ class $$FavoritesTableTableManager
                 addedAt: addedAt,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$FavoritesTable, Favorite>(table),
+                  BaseReferences<_$AppDatabase, $FavoritesTable, Favorite>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -2481,6 +2661,8 @@ typedef $$SearchHistoryTableCreateCompanionBuilder =
       Value<int> resultCount,
       required DateTime searchedAt,
       Value<String?> pmids,
+      Value<bool> pmcOnly,
+      Value<String> sort,
     });
 typedef $$SearchHistoryTableUpdateCompanionBuilder =
     SearchHistoryCompanion Function({
@@ -2489,6 +2671,8 @@ typedef $$SearchHistoryTableUpdateCompanionBuilder =
       Value<int> resultCount,
       Value<DateTime> searchedAt,
       Value<String?> pmids,
+      Value<bool> pmcOnly,
+      Value<String> sort,
     });
 
 class $$SearchHistoryTableFilterComposer
@@ -2522,6 +2706,16 @@ class $$SearchHistoryTableFilterComposer
 
   ColumnFilters<String> get pmids => $composableBuilder(
     column: $table.pmids,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get pmcOnly => $composableBuilder(
+    column: $table.pmcOnly,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sort => $composableBuilder(
+    column: $table.sort,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2559,6 +2753,16 @@ class $$SearchHistoryTableOrderingComposer
     column: $table.pmids,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get pmcOnly => $composableBuilder(
+    column: $table.pmcOnly,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sort => $composableBuilder(
+    column: $table.sort,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$SearchHistoryTableAnnotationComposer
@@ -2588,6 +2792,12 @@ class $$SearchHistoryTableAnnotationComposer
 
   GeneratedColumn<String> get pmids =>
       $composableBuilder(column: $table.pmids, builder: (column) => column);
+
+  GeneratedColumn<bool> get pmcOnly =>
+      $composableBuilder(column: $table.pmcOnly, builder: (column) => column);
+
+  GeneratedColumn<String> get sort =>
+      $composableBuilder(column: $table.sort, builder: (column) => column);
 }
 
 class $$SearchHistoryTableTableManager
@@ -2630,12 +2840,16 @@ class $$SearchHistoryTableTableManager
                 Value<int> resultCount = const Value.absent(),
                 Value<DateTime> searchedAt = const Value.absent(),
                 Value<String?> pmids = const Value.absent(),
+                Value<bool> pmcOnly = const Value.absent(),
+                Value<String> sort = const Value.absent(),
               }) => SearchHistoryCompanion(
                 id: id,
                 query: query,
                 resultCount: resultCount,
                 searchedAt: searchedAt,
                 pmids: pmids,
+                pmcOnly: pmcOnly,
+                sort: sort,
               ),
           createCompanionCallback:
               ({
@@ -2644,15 +2858,28 @@ class $$SearchHistoryTableTableManager
                 Value<int> resultCount = const Value.absent(),
                 required DateTime searchedAt,
                 Value<String?> pmids = const Value.absent(),
+                Value<bool> pmcOnly = const Value.absent(),
+                Value<String> sort = const Value.absent(),
               }) => SearchHistoryCompanion.insert(
                 id: id,
                 query: query,
                 resultCount: resultCount,
                 searchedAt: searchedAt,
                 pmids: pmids,
+                pmcOnly: pmcOnly,
+                sort: sort,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$SearchHistoryTable, SearchHistoryData>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $SearchHistoryTable,
+                    SearchHistoryData
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -2820,7 +3047,18 @@ class $$PmcFullTextCacheTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$PmcFullTextCacheTable, PmcFullTextCacheData>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $PmcFullTextCacheTable,
+                    PmcFullTextCacheData
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

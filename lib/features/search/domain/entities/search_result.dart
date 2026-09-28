@@ -4,7 +4,7 @@ part 'search_result.freezed.dart';
 
 /// Encapsulates a page of search results.
 @freezed
-class SearchResult with _$SearchResult {
+abstract class SearchResult with _$SearchResult {
   const factory SearchResult({
     required int totalCount,
     required List<int> pmids,

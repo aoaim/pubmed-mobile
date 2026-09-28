@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pubmed_mobile/core/l10n/app_localizations.dart';
 import 'package:pubmed_mobile/core/database/app_database.dart';
+import 'package:pubmed_mobile/core/analytics/analytics.dart';
 import 'package:pubmed_mobile/features/search/data/repositories/article_repository.dart';
 import 'package:pubmed_mobile/features/search/domain/entities/article.dart';
 import 'package:pubmed_mobile/features/article_detail/data/services/translation_service.dart';
+import 'package:pubmed_mobile/features/article_detail/domain/translation_failure.dart';
+import 'package:pubmed_mobile/features/article_detail/domain/journal_metric.dart';
 import 'package:pubmed_mobile/features/article_detail/data/services/easyscholar_service.dart';
+import 'package:pubmed_mobile/features/settings/data/settings_repository.dart';
 import 'package:drift/drift.dart' hide Column;
+
 import 'dart:convert';
 
 /// Provider for favorite status.
@@ -83,66 +89,182 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
   Future<void> _translateArticle() async {
     if (_article == null || _isTranslating || _isTranslated) return;
 
+    Analytics.track(AnalyticsEvents.translationRequested, {
+      'pmid': widget.pmid,
+      'provider': ref.read(translationServiceProvider).activeProvider.name,
+    });
+
     setState(() => _isTranslating = true);
     try {
       final service = ref.read(translationServiceProvider);
 
-      String? title;
-      if (_article!.title.isNotEmpty) {
-        title = await service.translate(_article!.title);
+      if (_article!.title.isNotEmpty && _translatedTitle == null) {
+        final title = await service.translate(_article!.title);
+        if (!mounted) return;
+        setState(() {
+          _translatedTitle = title;
+          _showTranslated = true;
+        });
+        await ref
+            .read(articleRepositoryProvider)
+            .updateArticleTranslation(widget.pmid, translatedTitle: title);
       }
 
-      String? abs;
-      if (_article!.abstract_.isNotEmpty) {
-        abs = await service.translate(_article!.abstract_);
+      if (_article!.abstract_.isNotEmpty && _translatedAbstract == null) {
+        final abs = await service.translate(_article!.abstract_);
+        if (!mounted) return;
+        setState(() {
+          _translatedAbstract = abs;
+          _showTranslated = true;
+        });
+        await ref
+            .read(articleRepositoryProvider)
+            .updateArticleTranslation(widget.pmid, translatedAbstract: abs);
       }
 
       if (mounted) {
         setState(() {
-          _translatedTitle = title;
-          _translatedAbstract = abs;
           _isTranslated = true;
-          _showTranslated = true;
           _isTranslating = false;
         });
 
-        // Save translation result to persistent cache
-        ref
-            .read(articleRepositoryProvider)
-            .updateArticleTranslation(widget.pmid, title ?? '', abs ?? '');
+        Analytics.track(AnalyticsEvents.translationCompleted, {
+          'pmid': widget.pmid,
+          'provider': ref.read(translationServiceProvider).activeProvider.name,
+        });
       }
-    } catch (e) {
+    } on TranslationFailure catch (failure) {
+      Analytics.track(AnalyticsEvents.translationFailed, {
+        'pmid': widget.pmid,
+        'provider': ref.read(translationServiceProvider).activeProvider.name,
+        'kind': failure.kind.name,
+      });
       if (mounted) {
         setState(() => _isTranslating = false);
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '${AppLocalizations.of(context).translationError}: $e',
-              ),
-            ),
-          );
-        }
+        _showTranslationError(failure);
       }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isTranslating = false);
+      _showTranslationError(
+        TranslationFailure(
+          TranslationFailureKind.unknown,
+          provider: ref.read(translationServiceProvider).activeProvider,
+          stage: TranslationStage.translation,
+        ),
+      );
     }
   }
 
+  void _showTranslationError(TranslationFailure failure) {
+    final l10n = AppLocalizations.of(context);
+    final provider = switch (failure.provider) {
+      TranslationProvider.deeplFree => 'DeepL Free API',
+      TranslationProvider.deeplPro => 'DeepL Pro API',
+      TranslationProvider.openai => 'OpenAI Compatible',
+    };
+    final endpoint = switch (failure.provider) {
+      TranslationProvider.deeplFree => 'api-free.deepl.com/v2/translate',
+      TranslationProvider.deeplPro => 'api.deepl.com/v2/translate',
+      TranslationProvider.openai =>
+        '${ref.read(settingsRepositoryProvider).openaiBaseUrl}/chat/completions',
+    };
+    final reason = switch (failure.kind) {
+      TranslationFailureKind.invalidApiKey => l10n.translationInvalidApiKey,
+      TranslationFailureKind.network => switch (failure.networkType) {
+        DioExceptionType.connectionTimeout ||
+        DioExceptionType.sendTimeout ||
+        DioExceptionType.receiveTimeout => l10n.translationTimeout,
+        DioExceptionType.badCertificate => l10n.translationCertificateFailed,
+        _ => l10n.translationConnectionFailed,
+      },
+      TranslationFailureKind.quotaExceeded => l10n.translationQuotaExceeded,
+      TranslationFailureKind.rateLimited => l10n.translationRateLimited,
+      TranslationFailureKind.serviceUnavailable =>
+        l10n.translationServiceUnavailable,
+      TranslationFailureKind.requestRejected => switch (failure.statusCode) {
+        400 => l10n.translationBadRequest,
+        404 => l10n.translationEndpointMissing,
+        _ => l10n.translationRequestRejected,
+      },
+      TranslationFailureKind.invalidResponse => l10n.translationInvalidResponse,
+      TranslationFailureKind.noProviderConfigured => l10n.translationNoProvider,
+      TranslationFailureKind.unknown => l10n.translationUnknownReason,
+    };
+    final suggestion = switch (failure.kind) {
+      TranslationFailureKind.invalidApiKey => l10n.translationCheckKey,
+      TranslationFailureKind.quotaExceeded => l10n.translationCheckQuota,
+      TranslationFailureKind.network ||
+      TranslationFailureKind.rateLimited => l10n.translationTryLater,
+      TranslationFailureKind.serviceUnavailable => l10n.translationCheckService,
+      TranslationFailureKind.noProviderConfigured => l10n.translationCheckKey,
+      _ => l10n.translationCheckResponse,
+    };
+
+    Widget detail(String label, String value) => Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(height: 4),
+          SelectableText(value),
+        ],
+      ),
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.translationError),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              detail(l10n.translationInterface, '$provider\n$endpoint'),
+              detail(l10n.translationReason, reason),
+              if (failure.statusCode != null)
+                detail(l10n.translationHttpStatus, '${failure.statusCode}'),
+              detail(l10n.translationSuggestion, suggestion),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.translationClose),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadData() async {
+    Analytics.track(AnalyticsEvents.articleOpened, {'pmid': widget.pmid});
+
     final db = ref.read(databaseProvider);
     final repo = ref.read(articleRepositoryProvider);
 
     // Step 1: Try loading from cache immediately
     final cached = await db.getCachedArticle(widget.pmid);
+    if (!mounted) return;
     if (cached != null) {
       setState(() {
         _article = _cachedToArticle(cached);
         _isOffline = true;
 
-        if (_article!.translatedTitle != null ||
-            _article!.translatedAbstract != null) {
-          _translatedTitle = _article!.translatedTitle;
-          _translatedAbstract = _article!.translatedAbstract;
-          _isTranslated = true;
+        if ((_article!.translatedTitle?.isNotEmpty ?? false) ||
+            (_article!.translatedAbstract?.isNotEmpty ?? false)) {
+          _translatedTitle = _article!.translatedTitle?.isNotEmpty == true
+              ? _article!.translatedTitle
+              : null;
+          _translatedAbstract = _article!.translatedAbstract?.isNotEmpty == true
+              ? _article!.translatedAbstract
+              : null;
+          _isTranslated =
+              (_article!.title.isEmpty || _translatedTitle != null) &&
+              (_article!.abstract_.isEmpty || _translatedAbstract != null);
           _showTranslated = true;
         }
       });
@@ -201,11 +323,14 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
       pmid: cached.pmid,
       title: cached.title,
       authors: authors,
+      affiliations: (jsonDecode(cached.affiliations) as List).cast<String>(),
       journal: cached.journal,
       pubDate: cached.pubDate,
       doi: cached.doi,
       pmcid: cached.pmcid,
       abstract_: cached.abstract_,
+      translatedTitle: cached.translatedTitle,
+      translatedAbstract: cached.translatedAbstract,
       meshTerms: meshTerms,
       hasFullDetail: cached.hasFullDetail,
     );
@@ -300,15 +425,17 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
                     : 'Copy title',
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: _article!.title));
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text(l10n.copied)));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text(l10n.copied)));
                 },
               ),
               _FavoriteButton(pmid: widget.pmid, article: _article!),
               IconButton(
                 icon: const Icon(Icons.share),
                 onPressed: () {
+                  Analytics.track(AnalyticsEvents.articleShared, {
+                    'pmid': widget.pmid,
+                  });
                   SharePlus.instance.share(
                     ShareParams(
                       text: '${_article!.title}\n${_article!.pubmedUrl}',
@@ -460,6 +587,10 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
       if (article.doi != null) ...[
         OutlinedButton.icon(
           onPressed: () {
+            Analytics.track(AnalyticsEvents.externalLinkOpened, {
+              'type': 'doi',
+              'pmid': widget.pmid,
+            });
             launchUrl(
               Uri.parse(article.doiUrl),
               mode: LaunchMode.externalApplication,
@@ -476,7 +607,13 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
       // 2) PMC link
       if (article.hasFullText) ...[
         FilledButton.icon(
-          onPressed: () => context.push('/reader/${article.pmcid}'),
+          onPressed: () {
+            Analytics.track(AnalyticsEvents.externalLinkOpened, {
+              'type': 'pmc',
+              'pmcid': article.pmcid ?? '',
+            });
+            context.push('/reader/${article.pmcid}');
+          },
           icon: const Icon(Icons.article),
           label: Text(isZh ? '在 PMC 阅读全文' : 'Read on PMC'),
           style: FilledButton.styleFrom(
@@ -496,16 +633,15 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
           if (article.hasFullText)
             Chip(
               avatar: const Icon(Icons.lock_open, size: 16),
-              label: Text(l10n.openAccess),
+              label: Text(l10n.pmcFullText),
               backgroundColor: theme.colorScheme.tertiaryContainer,
             ),
           ActionChip(
             label: Text('PMID: ${widget.pmid}'),
             onPressed: () {
               Clipboard.setData(ClipboardData(text: widget.pmid.toString()));
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(l10n.copied)));
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(l10n.copied)));
             },
           ),
           if (article.doi != null)
@@ -513,9 +649,8 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
               label: Text('DOI: ${article.doi}'),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: article.doi!));
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(l10n.copied)));
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(l10n.copied)));
               },
             ),
           Chip(label: Text(article.pubDate)),
@@ -533,33 +668,42 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
       ),
 
       // Journal Ranking (easyScholar)
-      if (_journalRanking != null && _journalRanking!.hasData) ...[
+      if (_journalRanking != null &&
+          _journalRanking!.hasData &&
+          ref
+              .watch(journalMetricsProvider)
+              .any((metric) => _journalRanking!.valueFor(metric) != null)) ...[
         const SizedBox(height: 8),
         Wrap(
           spacing: 6,
           runSpacing: 6,
           children: [
-            if (_journalRanking!.sciPartition != null)
-              _RankingChip(
-                label: 'JCR ${_journalRanking!.sciPartition}',
-                color: theme.colorScheme.primary,
-              ),
-            if (_journalRanking!.sciUpPartition != null)
-              _RankingChip(
-                label: isZh
-                    ? '中科院${_journalRanking!.sciUpPartition}'
-                    : 'CAS ${_journalRanking!.sciUpPartition}',
-                color: theme.colorScheme.secondary,
-              ),
-            if (_journalRanking!.sciUpTop != null)
-              _RankingChip(label: 'Top', color: theme.colorScheme.error),
-            if (_journalRanking!.sciIf != null)
-              _RankingChip(
-                label: 'IF ${_journalRanking!.sciIf}',
-                color: theme.colorScheme.tertiary,
-              ),
+            for (final metric in JournalMetric.values)
+              if (ref.watch(journalMetricsProvider).contains(metric) &&
+                  _journalRanking!.valueFor(metric) != null)
+                _RankingChip(
+                  label:
+                      '${l10n.journalMetricLabel(metric)} ${_journalRanking!.valueFor(metric)}',
+                  color: metric.isCas
+                      ? theme.colorScheme.secondary
+                      : theme.colorScheme.primary,
+                ),
           ],
         ),
+        if (ref
+            .watch(journalMetricsProvider)
+            .any(
+              (metric) =>
+                  metric.isCas && _journalRanking!.valueFor(metric) != null,
+            )) ...[
+          const SizedBox(height: 6),
+          Text(
+            l10n.casRankingNotice,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ],
       const SizedBox(height: 16),
 
@@ -573,6 +717,21 @@ class _ArticleDetailScreenState extends ConsumerState<ArticleDetailScreen> {
         ),
         const SizedBox(height: 8),
         Text(article.authors.join(', '), style: theme.textTheme.bodyMedium),
+        const SizedBox(height: 20),
+      ],
+
+      if (article.affiliations.isNotEmpty) ...[
+        Text(
+          l10n.affiliations,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SelectableText(
+          article.affiliations.join('\n\n'),
+          style: theme.textTheme.bodyMedium,
+        ),
         const SizedBox(height: 20),
       ],
 
@@ -660,6 +819,7 @@ class _FavoriteButton extends ConsumerWidget {
           final messenger = ScaffoldMessenger.of(context);
           if (isFav) {
             await db.removeFavorite(pmid);
+            Analytics.track(AnalyticsEvents.favoriteRemoved, {'pmid': pmid});
             messenger.showSnackBar(
               SnackBar(content: Text(l10n.favoriteRemoved)),
             );
@@ -676,6 +836,7 @@ class _FavoriteButton extends ConsumerWidget {
                 addedAt: Value(DateTime.now()),
               ),
             );
+            Analytics.track(AnalyticsEvents.favoriteAdded, {'pmid': pmid});
             messenger.showSnackBar(SnackBar(content: Text(l10n.favoriteAdded)));
           }
           ref.invalidate(isFavoriteProvider(pmid));
@@ -703,10 +864,8 @@ class _RankingChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
+        style: Theme.of(context).textTheme.labelSmall
+            ?.copyWith(color: color, fontWeight: FontWeight.w600),
       ),
     );
   }

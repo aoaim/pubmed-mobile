@@ -7,6 +7,7 @@ import 'package:pubmed_mobile/features/settings/data/settings_repository.dart';
 
 /// Provides the configured Dio instance.
 final dioProvider = Provider<Dio>((ref) {
+  ref.watch(credentialsRevisionProvider);
   final settings = ref.watch(settingsRepositoryProvider);
   final apiKey = settings.apiKey;
 
@@ -16,7 +17,6 @@ final dioProvider = Provider<Dio>((ref) {
     receiveTimeout: const Duration(seconds: 15),
     queryParameters: {
       'tool': AppConstants.toolName,
-      'email': AppConstants.contactEmail,
       if (apiKey != null && apiKey.isNotEmpty) 'api_key': apiKey,
     },
   ));
@@ -93,4 +93,3 @@ class RetryOn429Interceptor extends Interceptor {
     }
   }
 }
-
