@@ -13,7 +13,7 @@
 - **包名**：`pubmed_mobile`（Dart 包标识，勿改）
 - **Android applicationId**：`dev.aoaim.pubmed_mobile`（`android/app/build.gradle.kts`）
 - **桌面显示名**：`PubMed`（`AndroidManifest.xml` 的 `android:label`）
-- **版本**：`pubspec.yaml` 的 `version`（当前 `0.2.0+6`）是**唯一版本来源**——Android 构建（versionName/versionCode）与设置页「关于 → 检查更新」显示均从它派生（设置页用 `package_info_plus` 运行时读取，**不要写死版本文案**）。
+- **版本**：`pubspec.yaml` 的 `version`（当前 `0.2.0+7`）是**唯一版本来源**——Android 构建（versionName/versionCode）与设置页「关于 → 检查更新」显示均从它派生（设置页用 `package_info_plus` 运行时读取，**不要写死版本文案**）。
 - **更新日志**：`CHANGELOG.md`（格式见 §11，App 内「检查更新」功能依赖它）。
 - **当前平台**：Android（compileSdk 36, minSdk 29）。增加其他平台时，应同时补齐构建、数据存储、凭据、WebView 和测试配置。
 
@@ -129,8 +129,8 @@ lib/
 ### 4.5 设置与凭据（`lib/features/settings/data/settings_repository.dart`）
 
 - 普通设置 → `SharedPreferences`；**API Key 类凭据 → `FlutterSecureStorage`**（含旧数据自动迁移逻辑，勿破坏）。
-- 凭据 Key：NCBI `ncbi_api_key`、DeepL `deepl_api_key`、OpenAI 兼容 `openai_api_key`（含旧 SiliconFlow key 迁移）、easyScholar `easy_scholar_key`。
-- OpenAI 兼容通道的新安装预设为 DeepSeek 官方 `https://api.deepseek.com` / `deepseek-flash`；默认翻译通道仍为 DeepL。旧版已有 OpenAI 兼容 Key 且未保存地址时，启动迁移会写入旧地址，防止旧 Key 被发往 DeepSeek；旧模型未保存且地址不是 DeepSeek 时，保留旧模型。不要删掉迁移或覆盖用户手动保存的配置。
+- 凭据 Key：NCBI `ncbi_api_key`、DeepL `deepl_api_key`、OpenAI 兼容 `openai_api_key`、easyScholar `easy_scholar_key`。
+- OpenAI 兼容通道预设为 DeepSeek 官方 `https://api.deepseek.com` / `deepseek-flash`；默认翻译通道仍为 DeepL。当前修正版首次启动会重置一次 Base URL 与模型但保留 Key，之后必须保留用户手动保存的配置。保存 Key 或成功刷新模型列表时，必须同步保存当前 Base URL、Key 和模型，保证验证与实际翻译使用同一配置。
 - 设置类 Provider（都在此文件）：`settingsRepositoryProvider`、`credentialsRevisionProvider`、`translationChannelProvider`、`themeModeProvider`、`localeProvider`、`useDynamicColorProvider`、`pageSizeProvider`、`simplifyPmcReaderProvider`。
 - easyScholar 指标选择存于 SharedPreferences；字段名以官方 `officialRank.all` 文档为准。只显示接口返回且用户勾选的指标。中科院分区数据必须附 2026 年起停更说明，不能推测接口未提供的年份。
 
@@ -203,7 +203,7 @@ lib/
 - `test/widget_test.dart` — App 冒烟测试（引用 `PubMedMobileApp`）。
 - `test/pmc_page_test.dart` — PMC HTML 校验逻辑测试。
 - `test/translation_failure_test.dart` — 翻译错误分类测试。
-- `test/deepseek_defaults_test.dart` — DeepSeek 默认配置、旧凭据迁移与请求地址测试。
+- `test/deepseek_defaults_test.dart` — DeepSeek 默认配置、配置持久化与请求地址测试。
 - `test/changelog_parser_test.dart` — CHANGELOG 解析与版本比较测试。
 - `test/pubmed_search_detail_test.dart` — 搜索原始查询词与作者单位解析测试。
 - `test/database_metadata_migration_test.dart` — 搜索条件缓存隔离与旧数据库升级测试。

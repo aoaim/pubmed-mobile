@@ -107,36 +107,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _saveOpenaiBaseUrl() async {
-    await ref
-        .read(settingsRepositoryProvider)
-        .setOpenaiBaseUrl(_openaiBaseUrlController.text);
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).save)));
-    FocusScope.of(context).unfocus();
+    await _saveOpenaiConfiguration();
   }
 
   Future<void> _saveOpenaiKey() async {
-    final key = _openaiApiController.text.trim();
-    await ref.read(settingsRepositoryProvider).setOpenaiApiKey(key);
-    if (!mounted) return;
-    _markCredentialsChanged();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).save)));
-    FocusScope.of(context).unfocus();
+    await _saveOpenaiConfiguration();
   }
 
   Future<void> _saveOpenaiModel() async {
+    await _saveOpenaiConfiguration();
+  }
+
+  Future<void> _saveOpenaiConfiguration({bool showFeedback = true}) async {
     await ref
         .read(settingsRepositoryProvider)
-        .setOpenaiModel(_openaiModelController.text);
+        .setOpenaiConfiguration(
+          baseUrl: _openaiBaseUrlController.text,
+          apiKey: _openaiApiController.text,
+          model: _openaiModelController.text,
+        );
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).save)));
-    FocusScope.of(context).unfocus();
+    _markCredentialsChanged();
+    if (showFeedback) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).save)),
+      );
+      FocusScope.of(context).unfocus();
+    }
   }
 
   Future<void> _loadModels() async {
@@ -149,6 +146,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final models = await ref
           .read(translationServiceProvider)
           .fetchModels(baseUrl: baseUrl, apiKey: apiKey);
+      if (!mounted) return;
+      if (baseUrl == _openaiBaseUrlController.text &&
+          apiKey == _openaiApiController.text) {
+        await _saveOpenaiConfiguration(showFeedback: false);
+      }
       if (!mounted) return;
       setState(() {
         _models =

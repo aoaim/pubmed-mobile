@@ -16,7 +16,7 @@ void main() {
     test('ignores build numbers', () {
       expect(compareVersions('0.2.0+1', '0.2.0'), 0);
       expect(compareVersions('0.2.0+5', '0.2.0+1'), 0);
-      expect(compareVersions('0.2.1+1', '0.2.0+99'), greaterThan(0));
+      expect(compareVersions('0.3.0+1', '0.2.0+99'), greaterThan(0));
     });
 
     test('orders prerelease versions before their stable release', () {

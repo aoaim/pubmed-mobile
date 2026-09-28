@@ -43,33 +43,14 @@ class SettingsRepository {
       return legacyValue;
     }
 
-    // Migrate the old SiliconFlow key (stored by an earlier build) to the
-    // generic OpenAI-compatible key.
-    final legacySiliconflowKey = await loadCredential(_keyLegacySiliconflowKey);
     final openaiKey = await loadCredential(_keyOpenaiApiKey);
-    if (legacySiliconflowKey != null && openaiKey == null) {
-      await secureStorage.write(
-        key: _keyOpenaiApiKey,
-        value: legacySiliconflowKey,
-      );
-    }
-    final effectiveOpenaiKey = openaiKey ?? legacySiliconflowKey;
-    // Existing keys were entered when SiliconFlow and Qwen were the defaults.
-    // Keep their endpoint/model together so an upgrade never sends a saved key
-    // to DeepSeek. Fresh installs use the DeepSeek defaults below.
-    if (effectiveOpenaiKey != null &&
-        prefs.getString(_keyOpenaiBaseUrl) == null) {
-      await prefs.setString(_keyOpenaiBaseUrl, _legacyOpenaiBaseUrl);
-    }
-    if (prefs.getString(_keyOpenaiModel) == null &&
-        (effectiveOpenaiKey != null ||
-            prefs.getString(_keyOpenaiBaseUrl) == _legacyOpenaiBaseUrl) &&
-        prefs.getString(_keyOpenaiBaseUrl) !=
-            AppConstants.defaultOpenaiBaseUrl) {
-      await prefs.setString(_keyOpenaiModel, _legacyOpenaiModel);
-    }
-    if (legacySiliconflowKey != null) {
-      await secureStorage.delete(key: _keyLegacySiliconflowKey);
+
+    // Reset the provider fields once after installing this corrected build.
+    // Subsequent user changes are preserved across app restarts.
+    if (!(prefs.getBool(_keyOpenaiDefaultsReset) ?? false)) {
+      await prefs.remove(_keyOpenaiBaseUrl);
+      await prefs.remove(_keyOpenaiModel);
+      await prefs.setBool(_keyOpenaiDefaultsReset, true);
     }
 
     return SettingsRepository._(
@@ -77,7 +58,7 @@ class SettingsRepository {
       secureStorage,
       await loadCredential(_keyApiKey),
       await loadCredential(_keyDeeplApiKey),
-      effectiveOpenaiKey,
+      openaiKey,
       await loadCredential(_keyEasyScholarKey),
     );
   }
@@ -93,9 +74,9 @@ class SettingsRepository {
   static const _keyApiKey = 'ncbi_api_key';
   static const _keyDeeplApiKey = 'deepl_api_key';
   static const _keyOpenaiApiKey = 'openai_api_key';
-  static const _keyLegacySiliconflowKey = 'siliconflow_api_key';
   static const _keyOpenaiBaseUrl = 'openai_base_url';
   static const _keyOpenaiModel = 'openai_model';
+  static const _keyOpenaiDefaultsReset = 'openai_defaults_reset';
   static const _keyTranslationChannel = 'translation_channel';
   static const _keyEasyScholarKey = 'easyscholar_key';
   static const _keyThemeMode = 'theme_mode';
@@ -105,8 +86,6 @@ class SettingsRepository {
   static const _keyPageSize = 'page_size';
   static const _keySimplifyPmcReader = 'simplify_pmc_reader';
   static const _keyJournalMetrics = 'journal_metrics';
-  static const _legacyOpenaiBaseUrl = 'https://api.siliconflow.cn/v1';
-  static const _legacyOpenaiModel = 'Qwen/Qwen2.5-7B-Instruct';
 
   static const defaultJournalMetrics = <JournalMetric>{
     JournalMetric.jcr,
@@ -198,6 +177,19 @@ class SettingsRepository {
     } else {
       await _prefs.setString(_keyOpenaiModel, model);
     }
+  }
+
+  /// Persists the complete OpenAI-compatible configuration shown in Settings.
+  /// Keeping these values together prevents the UI from validating one
+  /// endpoint while article translation uses a different saved endpoint.
+  Future<void> setOpenaiConfiguration({
+    required String baseUrl,
+    required String apiKey,
+    required String model,
+  }) async {
+    await setOpenaiApiKey(apiKey.trim());
+    await setOpenaiBaseUrl(baseUrl);
+    await setOpenaiModel(model);
   }
 
   // Translation channel

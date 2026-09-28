@@ -103,7 +103,7 @@ flutter build apk --release --target-platform=android-arm64
 
 ### 升级时保留数据
 
-从旧版本升级时，直接安装新版 APK，**不要先卸载旧版，也不要清除应用数据**。只要 Android 包名保持 `dev.aoaim.pubmed_mobile`、发布签名不变、`pubspec.yaml` 中 `+` 后的构建号高于已安装版本，Android 会原地升级：收藏与离线缓存保留在 SQLite 数据库中，普通设置保留在 SharedPreferences 中，API Key 保留在系统安全存储中。数据库结构升级必须使用迁移，不能删除旧数据库重建。
+从旧版本升级时，直接安装新版 APK，**不要先卸载旧版，也不要清除应用数据**。只要 Android 包名保持 `dev.aoaim.pubmed_mobile`、发布签名不变、`pubspec.yaml` 中 `+` 后的构建号高于已安装版本，Android 会原地升级：收藏与离线缓存保留在 SQLite 数据库中，普通设置保留在 SharedPreferences 中，API Key 保留在系统安全存储中。当前 0.2.0 修正版会在首次启动时将 OpenAI 兼容 Base URL 与模型恢复一次默认值，同时保留 API Key；之后的自定义配置正常保留。数据库结构升级必须使用迁移，不能删除旧数据库重建。
 
 目前应用关闭了 Android 自动备份，因此卸载重装、清除数据或更换设备后不能依靠系统备份恢复这些数据；签名不同的 APK 也无法直接覆盖安装。发布前应使用与旧版同一签名的 APK，在保留数据的设备上验证收藏、API Key 和设置仍可读取。
 
@@ -151,7 +151,7 @@ dart run build_runner build
 当前项目 `pubspec.yaml` 采用：
 
 ```yaml
-version: 0.2.0+6
+version: 0.2.0+7
 ```
 
 > 版本号以 `pubspec.yaml` 为准；发布时让标签（如 `v0.2.0`）与主版本号及 `CHANGELOG.md` 条目一致。
@@ -185,7 +185,7 @@ flutter build apk --release --target-platform=android-arm64
 name: pubmed_mobile
 description: "A mobile PubMed literature search client."
 publish_to: 'none'
-version: 0.2.0+6
+version: 0.2.0+7
 ```
 
 原因：
@@ -204,11 +204,11 @@ version: 0.2.0+6
 | Android 包名（applicationId） | `dev.aoaim.pubmed_mobile` | 安装包唯一标识（影响升级/签名/商店） | `android/app/build.gradle.kts` 的 `applicationId` |
 | Flutter 应用标题 | `PubMed Mobile` | 系统任务视图/语义标题等 | `lib/main.dart` 的 `MaterialApp.router(title: ...)` |
 
-### 3) `version: 0.2.0+6` 的含义
+### 3) `version: 0.2.0+7` 的含义
 
 语义上完全正确，且符合 Flutter 约定：
 - `0.2.0` = 用户可见版本号（Android 的 `versionName`）
-- `+6` = Android 构建号（`versionCode`）；每次发布必须高于上一版，才能原地升级
+- `+7` = Android 构建号（`versionCode`）；每次发布必须高于上一版，才能原地升级
 
 当前 `android/app/build.gradle.kts` 使用 `flutter.versionName` 和 `flutter.versionCode`，所以这里会自动同步到 Android 构建。
 
@@ -558,7 +558,7 @@ presentation/screens/favorites_screen.dart
 
 #### `presentation/screens/settings_screen.dart`
 
-- **API Key**：分别提供 NCBI API、DeepL 翻译 API、OpenAI 兼容翻译 API（默认 DeepSeek 官方接口）、easyScholar 期刊分区 API 的配置项。升级时，已有 OpenAI 兼容 Key 且未保存地址的用户会写入旧地址，避免把旧 Key 发往新服务；旧模型未保存且地址不是 DeepSeek 时保留旧模型。新安装使用 DeepSeek 默认值。DeepSeek 默认模型的翻译请求关闭思考模式，以降低等待时间。
+- **API Key**：分别提供 NCBI API、DeepL 翻译 API、OpenAI 兼容翻译 API（默认 DeepSeek 官方接口）、easyScholar 期刊分区 API 的配置项。当前修正版首次启动会恢复一次默认 Base URL 与模型并保留 Key；此后保存 Key 或成功刷新模型列表时，会同步保存当前 Base URL、Key 和模型，确保文献翻译使用相同配置。DeepSeek 默认模型的翻译请求关闭思考模式，以降低等待时间。
 - **easyScholar**：配置 SecretKey 后，用户可勾选文献详情页要显示的指标；分区选择保存在 SharedPreferences。
 - **主题**：
   - 模式三选一：跟随系统/浅色/深色。

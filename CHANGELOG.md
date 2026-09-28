@@ -34,6 +34,8 @@
 
 ### 修复
 
+- 修复：OpenAI 兼容翻译保存 DeepSeek Key 后，重新进入页面可能错误切换服务地址和模型
+- 修复：刷新模型列表成功后同步保存当前 Base URL、API Key 和模型，确保文献翻译使用与设置页验证相同的配置
 - 修复：设置页「关于」中写死的版本号与 pubspec 不同步的问题
 - 修复：PMC 阅读器白屏及错误页缓存问题；改用 PMC 官方域名，下载并校验正文后展示，无效缓存自动清理，手动刷新重新加载
 - 修复：再次打开文献详情时恢复已缓存的标题与摘要译文
@@ -43,6 +45,8 @@
 
 ### 调整
 
+- 调整：升级 Android 构建链至 Gradle 9.1、Android Gradle Plugin 9.0.1 和 Kotlin 2.3.20，并补充 Cupertino 图标字体
+- 调整：升级 PMC WebView 组件，适配 Android Gradle Plugin 9
 - 调整：升级代码生成器与 SQLite 依赖，适配当前 Dart SDK
 - 调整：由于接口失效，翻译不再回退到 Microsoft 免费接口，需为当前翻译通道配置 API Key
 - 调整：关闭 Android 自动备份，应用数据不再通过 Android 系统备份恢复

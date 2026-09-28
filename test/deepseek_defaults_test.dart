@@ -38,34 +38,49 @@ void main() {
     },
   );
 
-  test(
-    'existing key keeps the old endpoint and model across upgrade',
-    () async {
-      final credentials = {'openai_api_key': 'old-provider-key'};
-      final settings = await createSettings({}, credentials);
+  test('a saved DeepSeek key keeps DeepSeek defaults after restart', () async {
+    final credentials = <String, String>{};
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStoragePlatform.instance = TestFlutterSecureStoragePlatform(
+      credentials,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    const storage = FlutterSecureStorage();
+    final firstLaunch = await SettingsRepository.create(prefs, storage);
 
-      expect(settings.openaiApiKey, 'old-provider-key');
-      expect(settings.openaiBaseUrl, 'https://api.siliconflow.cn/v1');
-      expect(settings.openaiModel, 'Qwen/Qwen2.5-7B-Instruct');
-    },
-  );
+    await firstLaunch.setOpenaiApiKey('new-deepseek-key');
+    final secondLaunch = await SettingsRepository.create(prefs, storage);
 
-  test(
-    'legacy key migrates without overriding a chosen endpoint or model',
-    () async {
-      final credentials = {'siliconflow_api_key': 'legacy-key'};
-      final settings = await createSettings({
-        'openai_base_url': 'https://example.org/v1',
-        'openai_model': 'custom-model',
-      }, credentials);
+    expect(secondLaunch.openaiApiKey, 'new-deepseek-key');
+    expect(secondLaunch.openaiBaseUrl, AppConstants.defaultOpenaiBaseUrl);
+    expect(secondLaunch.openaiModel, AppConstants.defaultOpenaiModel);
+  });
 
-      expect(settings.openaiApiKey, 'legacy-key');
-      expect(settings.openaiBaseUrl, 'https://example.org/v1');
-      expect(settings.openaiModel, 'custom-model');
-      expect(credentials['openai_api_key'], 'legacy-key');
-      expect(credentials.containsKey('siliconflow_api_key'), isFalse);
-    },
-  );
+  test('resets provider settings once and preserves later edits', () async {
+    final credentials = {'openai_api_key': 'deepseek-key'};
+    SharedPreferences.setMockInitialValues({
+      'openai_base_url': 'https://example.org/v1',
+      'openai_model': 'old-model',
+    });
+    FlutterSecureStoragePlatform.instance = TestFlutterSecureStoragePlatform(
+      credentials,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    const storage = FlutterSecureStorage();
+
+    final upgraded = await SettingsRepository.create(prefs, storage);
+    expect(upgraded.openaiBaseUrl, AppConstants.defaultOpenaiBaseUrl);
+    expect(upgraded.openaiModel, AppConstants.defaultOpenaiModel);
+
+    await upgraded.setOpenaiConfiguration(
+      baseUrl: 'https://example.org/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+    );
+    final restarted = await SettingsRepository.create(prefs, storage);
+    expect(restarted.openaiBaseUrl, 'https://example.org/v1');
+    expect(restarted.openaiModel, 'custom-model');
+  });
 
   test(
     'default DeepSeek translation uses its URL and non-thinking mode',

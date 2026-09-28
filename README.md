@@ -61,7 +61,7 @@ After a successful online search, the app sends the **full search query**, sort 
 ## API Key 与翻译
 
 - NCBI API Key 可选；配置后 PubMed 请求的速率上限由每秒 3 次提高到每秒 10 次。
-- 翻译支持 DeepL API 和 OpenAI 兼容接口。OpenAI 兼容通道默认使用 DeepSeek 官方地址 `https://api.deepseek.com` 与 `deepseek-flash` 模型，需填写 DeepSeek API Key；也可自行更换地址和模型。已有用户保存的旧服务地址、模型与 Key 会保留。DeepL Free Key 以 `:fx` 结尾时使用 Free 接口。
+- 翻译支持 DeepL API 和 OpenAI 兼容接口。OpenAI 兼容通道默认使用 DeepSeek 官方地址 `https://api.deepseek.com` 与 `deepseek-flash` 模型，需填写 DeepSeek API Key；也可自行更换地址和模型。此修正版首次启动会恢复一次默认地址和模型并保留 API Key，之后保存的自定义配置会正常保留。DeepL Free Key 以 `:fx` 结尾时使用 Free 接口。
 - easyScholar SecretKey 用于查询期刊指标，接口每秒最多调用 2 次。可在 [easyScholar 官网](https://www.easyscholar.cc) 获取。
 - API Key 保存在设备的系统安全存储中。翻译请求会发送待翻译的文献文字至用户所选择的服务。
 
