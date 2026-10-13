@@ -23,11 +23,7 @@
 
 本应用使用 [Aptabase](https://aptabase.com/) 作为使用信息统计服务，目的是了解常用功能与检索主题、搜索结果数量及翻译失败类型，以确定改进重点并排查体验问题。应用使用 Aptabase 的 **EU 区域**；这些统计数据发送至 `eu.aptabase.com`，由 Aptabase 存储在**欧盟（德国）**。
 
-每次联网搜索成功后，应用会向 Aptabase 发送**完整搜索词**、排序方式和结果数量；此外还会记录应用启动、文献与 PMC 阅读、收藏、翻译和部分设置操作，相关事件可能包含文献的 PMID 或 PMCID。API Key 不作为统计事件的字段发送。搜索历史保存在本机，但成功搜索时的当前搜索词仍会按上述方式发送；请勿在搜索词中填写不希望发送给统计服务的个人或敏感信息。目前应用内没有关闭统计的开关。**欧盟存储说明仅针对 Aptabase 统计数据**，不代表 NCBI 搜索接口或用户自行选择的翻译服务也在欧盟存储数据。
-
 The app uses [Aptabase](https://aptabase.com/) for usage analytics. This helps us understand feature use and common research topics, assess search result counts and translation failure types, and prioritize improvements. The app uses Aptabase's **EU region**: analytics events are sent to `eu.aptabase.com` and stored by Aptabase in the **European Union (Germany)**.
-
-After a successful online search, the app sends the **full search query**, sort order, and result count. Other events cover app launches, article and PMC views, favorites, translation, and some settings actions; these may include a PMID or PMCID. API keys are not sent as analytics event fields. Search history is stored locally, but each successful query is sent as described above. Do not enter personal or sensitive information that you do not want sent to the analytics service. The app currently has no analytics off switch. **The EU storage statement applies only to Aptabase analytics data**, not to NCBI searches or a translation provider chosen by the user.
 
 ## 截图
 
